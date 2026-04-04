@@ -13,7 +13,7 @@ import {
 } from "@/lib/types";
 import { updateDay } from "@/app/actions/itinerary";
 import { moveActivitiesToDay } from "@/app/actions/activities";
-import { assignRestaurantToDay, unassignRestaurant } from "@/app/actions/restaurants";
+import { assignRestaurantToDay, unassignRestaurant, addAndAssignRestaurant } from "@/app/actions/restaurants";
 import FamilySection from "./FamilySection";
 import DayItemRow from "./DayItemRow";
 import AddItemForm from "./AddItemForm";
@@ -62,6 +62,31 @@ const FAMILY_INTEREST: Record<string, keyof WishlistItem> = {
   family2: "interested_family2",
   family3: "interested_family3",
 };
+
+interface PlaceResult {
+  name: string;
+  address: string;
+  lat: number | null;
+  lng: number | null;
+  url: string;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function loadGoogleMapsWithPlaces(): Promise<void> {
+  const w = window as any;
+  if (w.google?.maps?.places) return Promise.resolve();
+  if (w._gmapsLoading) return w._gmapsLoading;
+  w._gmapsLoading = new Promise<void>((resolve) => {
+    const existing = document.querySelector("script[src*='maps.googleapis.com']");
+    if (existing) { existing.addEventListener("load", () => resolve()); return; }
+    const script = document.createElement("script");
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=places`;
+    script.async = true;
+    script.onload = () => resolve();
+    document.head.appendChild(script);
+  });
+  return w._gmapsLoading;
+}
 
 interface Props {
   days: ItineraryDay[];
@@ -211,6 +236,8 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
   const [routeIds, setRouteIds] = useState<number[]>([]);
   const [busySuggestion, setBusySuggestion] = useState<{ excess: WishlistItem[]; nextDay: ItineraryDay | null } | null>(null);
   const [allBusyDays, setAllBusyDays] = useState<Record<string, { excess: WishlistItem[]; nextDay: ItineraryDay | null }>>({});
+  const [restaurantSearching, setRestaurantSearching] = useState<"lunch" | "dinner" | null>(null);
+  const [restaurantSuggestions, setRestaurantSuggestions] = useState<{ meal: "lunch" | "dinner"; results: PlaceResult[] } | null>(null);
   const autoSuggestRef = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -267,6 +294,38 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
 
     setTimeout(() => panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   }, [selectedDate]);
+
+  async function suggestNearbyRestaurant(meal: "lunch" | "dinner", lat: number, lng: number) {
+    setRestaurantSearching(meal);
+    setRestaurantSuggestions(null);
+    try {
+      await loadGoogleMapsWithPlaces();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const g = (window as any).google;
+      const service = new g.maps.places.PlacesService(document.createElement("div"));
+      service.nearbySearch(
+        { location: { lat, lng }, radius: 800, type: "restaurant" },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (places: any[], status: string) => {
+          if (status === g.maps.places.PlacesServiceStatus.OK && places?.length) {
+            setRestaurantSuggestions({
+              meal,
+              results: places.slice(0, 5).map((p: any) => ({
+                name: p.name,
+                address: p.vicinity ?? p.formatted_address ?? "",
+                lat: p.geometry?.location?.lat() ?? null,
+                lng: p.geometry?.location?.lng() ?? null,
+                url: p.website ?? "",
+              })),
+            });
+          }
+          setRestaurantSearching(null);
+        }
+      );
+    } catch {
+      setRestaurantSearching(null);
+    }
+  }
 
   function suggestItinerary() {
     if (itinerarySuggested) {
@@ -686,7 +745,26 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
               const lunchOptions = candidates.filter((r) => r.id !== assignedDinner?.id);
               const dinnerOptions = candidates.filter((r) => r.id !== assignedLunch?.id);
 
-              function RestaurantCard({ r, meal }: { r: Restaurant; meal: "lunch" | "dinner" }) {
+              // Find the last activity with coordinates before a given meal slot
+              function getRefLocation(meal: "lunch" | "dinner"): { lat: number; lng: number } | null {
+                const mealLabel = meal === "lunch" ? "Lunch" : "Dinner";
+                const mealIdx = itinerarySlots.findIndex(
+                  (s) => s.type === "meal" && s.label === mealLabel
+                );
+                const searchUntil = mealIdx >= 0 ? mealIdx : itinerarySlots.length;
+                for (let i = searchUntil - 1; i >= 0; i--) {
+                  const s = itinerarySlots[i];
+                  if (s.type === "activity" && s.activity.lat && s.activity.lng)
+                    return { lat: s.activity.lat, lng: s.activity.lng };
+                }
+                // Fallback: any activity on this day with coords
+                for (const a of activitiesForDay) {
+                  if (a.lat && a.lng) return { lat: a.lat, lng: a.lng };
+                }
+                return null;
+              }
+
+              function RestaurantCard({ r }: { r: Restaurant }) {
                 return (
                   <div className="flex items-start gap-3">
                     {r.image_url && (
@@ -717,9 +795,13 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                 assigned: Restaurant | null;
                 options: Restaurant[];
               }) {
+                const refLoc = getRefLocation(meal);
+                const isSearchingThis = restaurantSearching === meal;
+                const thisSuggestions = restaurantSuggestions?.meal === meal ? restaurantSuggestions.results : [];
+
                 return (
                   <div className="px-4 py-3 space-y-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs font-bold uppercase tracking-wide text-gray-500">
                         {meal === "lunch" ? "☀️" : "🌙"} {label}
                       </span>
@@ -730,21 +812,62 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                             if (e.target.value) assignRestaurantToDay(Number(e.target.value), date, meal);
                             e.target.value = "";
                           }}
-                          className="ml-auto text-xs border border-gray-200 rounded-lg px-2 py-1 text-gray-500 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+                          className="text-xs border border-gray-200 rounded-lg px-2 py-1 text-gray-500 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
                         >
-                          <option value="">Assign a restaurant…</option>
+                          <option value="">Choose restaurant…</option>
                           {options.map((r) => (
                             <option key={r.id} value={r.id}>{r.name}</option>
                           ))}
                         </select>
                       )}
-                      {!assigned && options.length === 0 && (
-                        <a href={`https://www.google.com/maps/search/${mapsQuery}`} target="_blank" rel="noopener noreferrer"
-                          className="ml-auto text-xs text-gray-400 hover:text-amber-600">Find on Maps →</a>
+                      {!assigned && refLoc && (
+                        <button
+                          type="button"
+                          onClick={() => suggestNearbyRestaurant(meal, refLoc.lat, refLoc.lng)}
+                          disabled={isSearchingThis}
+                          className="ml-auto flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 disabled:opacity-50 transition-colors font-medium"
+                        >
+                          {isSearchingThis
+                            ? <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                            : <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+                          }
+                          Suggest nearby
+                        </button>
                       )}
                     </div>
+
+                    {/* Nearby suggestions */}
+                    {thisSuggestions.length > 0 && (
+                      <div className="border border-indigo-100 rounded-xl overflow-hidden divide-y divide-gray-100 bg-white">
+                        <p className="px-3 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50">
+                          Nearby restaurants — click to add &amp; assign
+                        </p>
+                        {thisSuggestions.map((p, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => {
+                              addAndAssignRestaurant(p.name, p.address || null, p.lat, p.lng, p.url || null, city, date, meal);
+                              setRestaurantSuggestions(null);
+                            }}
+                            className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 transition-colors"
+                          >
+                            <p className="text-sm font-medium text-gray-800">{p.name}</p>
+                            <p className="text-xs text-gray-400">{p.address}</p>
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => setRestaurantSuggestions(null)}
+                          className="w-full text-center px-3 py-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    )}
+
                     {assigned
-                      ? <RestaurantCard r={assigned} meal={meal} />
+                      ? <RestaurantCard r={assigned} />
                       : <p className="text-xs text-gray-400 italic">None assigned</p>
                     }
                   </div>

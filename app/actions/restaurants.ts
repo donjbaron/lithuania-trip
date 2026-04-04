@@ -120,3 +120,22 @@ export async function unassignRestaurant(id: number) {
   );
   revalidate();
 }
+
+export async function addAndAssignRestaurant(
+  name: string,
+  address: string | null,
+  lat: number | null,
+  lng: number | null,
+  url: string | null,
+  city: string | null,
+  date: string,
+  mealType: "lunch" | "dinner"
+) {
+  const imageUrl = url ? await fetchOgImage(url) : null;
+  await dbRun(
+    `INSERT INTO restaurants (name, city, meal_type, activity_date, url, address, image_url, lat, lng)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [name, city, mealType, date, url, address, imageUrl, lat, lng]
+  );
+  revalidate();
+}

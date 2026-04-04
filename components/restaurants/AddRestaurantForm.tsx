@@ -43,6 +43,7 @@ interface PlaceResult {
 export default function AddRestaurantForm() {
   const formRef = useRef<HTMLFormElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<PlaceResult[]>([]);
   const [filled, setFilled] = useState<Partial<PlaceResult>>({});
@@ -52,6 +53,7 @@ export default function AddRestaurantForm() {
     formRef.current?.reset();
     setFilled({});
     setResults([]);
+    setOpen(false);
   }
 
   async function handleSearch() {
@@ -93,9 +95,32 @@ export default function AddRestaurantForm() {
     if (nameRef.current) nameRef.current.value = r.name;
   }
 
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 text-white rounded-xl text-sm font-medium hover:bg-amber-600 transition-colors shadow-sm"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+        </svg>
+        Add Restaurant
+      </button>
+    );
+  }
+
   return (
     <form ref={formRef} action={handleSubmit} className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-      <h3 className="text-sm font-semibold text-gray-700 mb-4">Add Restaurant</h3>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-gray-700">Add Restaurant</h3>
+        <button type="button" onClick={() => setOpen(false)}
+          className="text-gray-400 hover:text-gray-600 transition-colors">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
 
         {/* Name + search */}
