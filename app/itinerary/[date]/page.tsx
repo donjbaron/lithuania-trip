@@ -25,7 +25,7 @@ function formatDayHeader(dateStr: string) {
 }
 
 function getDayNumber(dateStr: string) {
-  const start = new Date(2025, 6, 31); // Jul 31
+  const start = new Date(2026, 6, 31); // Jul 31
   const [y, m, d] = dateStr.split("-").map(Number);
   const date = new Date(y, m - 1, d);
   return Math.round((date.getTime() - start.getTime()) / 86400000) + 1;
@@ -36,13 +36,13 @@ function getAdjacentDates(currentDate: string): {
   next: string | null;
 } {
   const tripDates = [
-    "2025-07-31",
-    "2025-08-01",
-    "2025-08-02",
-    "2025-08-03",
-    "2025-08-04",
-    "2025-08-05",
-    "2025-08-06",
+    "2026-07-31",
+    "2026-08-01",
+    "2026-08-02",
+    "2026-08-03",
+    "2026-08-04",
+    "2026-08-05",
+    "2026-08-06",
   ];
   const idx = tripDates.indexOf(currentDate);
   return {

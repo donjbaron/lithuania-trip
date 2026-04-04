@@ -9,8 +9,8 @@ const geist = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "Lithuania Trip 2025",
-  description: "Family trip planner for Lithuania summer 2025",
+  title: "Lithuania Trip 2026",
+  description: "Family trip planner for Lithuania summer 2026",
 };
 
 export default function RootLayout({
@@ -21,15 +21,28 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geist.variable} h-full`}>
       <body className="min-h-full bg-gray-50 font-sans antialiased">
-        <header className="bg-green-800 text-white py-4 px-4">
-          <div className="max-w-5xl mx-auto">
-            <h1 className="text-xl font-bold tracking-tight">
-              Lithuania Trip 2025
-            </h1>
-            <p className="text-green-200 text-sm mt-0.5">
-              Don, Tova, Jake &amp; Tali &middot; Misha &amp; Sophie &middot;
-              Judy, Paul &amp; Raquel
-            </p>
+        <header className="text-white">
+          {/* Lithuanian flag stripes */}
+          <div className="flex h-2">
+            <div className="flex-1" style={{ backgroundColor: "#FDB913" }} />
+            <div className="flex-1" style={{ backgroundColor: "#006A44" }} />
+            <div className="flex-1" style={{ backgroundColor: "#C1272D" }} />
+          </div>
+          <div className="px-4 py-4" style={{ backgroundColor: "#006A44" }}>
+            <div className="max-w-5xl mx-auto flex items-center gap-4">
+              {/* Flag icon */}
+              <div className="shrink-0 w-10 h-7 rounded-sm overflow-hidden shadow border border-white/20 flex flex-col">
+                <div className="flex-1" style={{ backgroundColor: "#FDB913" }} />
+                <div className="flex-1" style={{ backgroundColor: "#006A44" }} />
+                <div className="flex-1" style={{ backgroundColor: "#C1272D" }} />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold tracking-tight">Lithuania Trip 2026</h1>
+                <p className="text-green-200 text-sm mt-0.5">
+                  Don, Tova, Jake &amp; Tali &middot; Misha &amp; Sophie &middot; Judy, Paul &amp; Raquel
+                </p>
+              </div>
+            </div>
           </div>
         </header>
         <TabNav />

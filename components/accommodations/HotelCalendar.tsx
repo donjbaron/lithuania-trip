@@ -2,13 +2,13 @@ import Image from "next/image";
 import { FAMILIES, type Accommodation } from "@/lib/types";
 
 const TRIP_DATES = [
-  "2025-07-31",
-  "2025-08-01",
-  "2025-08-02",
-  "2025-08-03",
-  "2025-08-04",
-  "2025-08-05",
-  "2025-08-06",
+  "2026-07-31",
+  "2026-08-01",
+  "2026-08-02",
+  "2026-08-03",
+  "2026-08-04",
+  "2026-08-05",
+  "2026-08-06",
 ];
 
 const CITY_OVERLAY: Record<string, string> = {
@@ -125,8 +125,8 @@ export default function HotelCalendar({ hotels, photoUrls }: Props) {
                 />
               </div>
               <div className="min-w-0">
-                <p className="text-sm font-bold text-gray-800 truncate">{family.label}</p>
-                <p className="text-[11px] text-gray-400 mt-0.5 leading-snug">{family.members.replace(/·/g, "\n")}</p>
+                <p className="text-sm font-bold text-gray-800 leading-snug">{family.label}</p>
+                <p className="text-[11px] text-gray-400 mt-0.5 leading-snug whitespace-pre-line">{family.members.replace(/·/g, "\n")}</p>
               </div>
             </div>
 
@@ -158,7 +158,7 @@ export default function HotelCalendar({ hotels, photoUrls }: Props) {
                         href={mapsUrl(hotel)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="absolute inset-y-0 rounded-xl overflow-hidden shadow-md hover:shadow-lg hover:scale-[1.01] transition-all duration-150 group"
+                        className="absolute inset-y-0 rounded-md overflow-hidden shadow-md hover:shadow-lg hover:scale-[1.01] transition-all duration-150 group"
                         style={{
                           left: `calc(${(startIdx / numCols) * 100}% + 4px)`,
                           width: `calc(${(length / numCols) * 100}% - 8px)`,

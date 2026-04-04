@@ -33,7 +33,7 @@ export default function AccommodationsPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-gray-800">Hotels & Accommodations</h2>
-        <span className="text-sm text-gray-400">Jul 31 – Aug 6, 2025</span>
+        <span className="text-sm text-gray-400">Jul 31 – Aug 6, 2026</span>
       </div>
       <HotelCalendar hotels={hotels} photoUrls={photoUrls} />
     </div>

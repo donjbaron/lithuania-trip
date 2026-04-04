@@ -91,6 +91,11 @@ function initSchema(db: Database.Database) {
     "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS interested_family1 INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS interested_family2 INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS interested_family3 INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS image_url TEXT",
+    "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS wiki_url TEXT",
+    "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS time_slot TEXT",
+    "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS lat REAL",
+    "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS lng REAL",
   ];
   for (const sql of migrations) {
     try {
@@ -112,13 +117,13 @@ function initSchema(db: Database.Database) {
       "INSERT OR IGNORE INTO itinerary_days (trip_date, sort_order) VALUES (?, ?)"
     );
     const dates = [
-      "2025-07-31",
-      "2025-08-01",
-      "2025-08-02",
-      "2025-08-03",
-      "2025-08-04",
-      "2025-08-05",
-      "2025-08-06",
+      "2026-07-31",
+      "2026-08-01",
+      "2026-08-02",
+      "2026-08-03",
+      "2026-08-04",
+      "2026-08-05",
+      "2026-08-06",
     ];
     dates.forEach((date, i) => insertDay.run(date, i));
   }

@@ -30,7 +30,7 @@ export async function saveHotelFromSearch(
       `INSERT INTO accommodations
          (city, name, check_in, check_out, address, family_group, lat, lng)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(city, name, "2025-07-31", "2025-08-07", address, familyGroup, lat, lng);
+    ).run(city, name, "2026-07-31", "2026-08-07", address, familyGroup, lat, lng);
   }
 
   revalidateAll();

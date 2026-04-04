@@ -52,9 +52,14 @@ export interface WishlistItem {
   description: string | null;
   url: string | null;
   activity_date: string | null;
+  time_slot: string | null;
   interested_family1: number;
   interested_family2: number;
   interested_family3: number;
+  image_url: string | null;
+  wiki_url: string | null;
+  lat: number | null;
+  lng: number | null;
   is_done: number;
   added_by: string | null;
   created_at: string;

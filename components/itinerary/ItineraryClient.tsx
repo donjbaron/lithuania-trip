@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import dynamic from "next/dynamic";
 import {
   type ItineraryDay,
   type ItineraryItem,
   type Accommodation,
+  type WishlistItem,
   FAMILIES,
   LITHUANIAN_CITIES,
 } from "@/lib/types";
@@ -48,28 +49,194 @@ function formatLongDate(d: string) {
 }
 
 function getDayNumber(dateStr: string) {
-  const start = new Date(2025, 6, 31);
+  const start = new Date(2026, 6, 31);
   const [y, m, d] = dateStr.split("-").map(Number);
   return Math.round((new Date(y, m - 1, d).getTime() - start.getTime()) / 86400000) + 1;
 }
+
+const FAMILY_INTEREST: Record<string, keyof WishlistItem> = {
+  family1: "interested_family1",
+  family2: "interested_family2",
+  family3: "interested_family3",
+};
 
 interface Props {
   days: ItineraryDay[];
   items: ItineraryItem[];
   hotels: Accommodation[];
+  activities: WishlistItem[];
 }
 
-export default function ItineraryClient({ days, items, hotels }: Props) {
+type ItinerarySlot =
+  | { type: "meal"; label: string; time: string }
+  | { type: "activity"; activity: WishlistItem; time: string };
+
+function geoDistance(a: WishlistItem, b: WishlistItem) {
+  const dlat = (a.lat ?? 0) - (b.lat ?? 0);
+  const dlng = (a.lng ?? 0) - (b.lng ?? 0);
+  return Math.sqrt(dlat * dlat + dlng * dlng);
+}
+
+function nearestNeighborSort(items: WishlistItem[]): WishlistItem[] {
+  if (items.length <= 1) return items;
+  const remaining = [...items];
+  const result: WishlistItem[] = [remaining.splice(0, 1)[0]];
+  while (remaining.length > 0) {
+    const last = result[result.length - 1];
+    let nearestIdx = 0;
+    let nearestDist = Infinity;
+    for (let i = 0; i < remaining.length; i++) {
+      const d = geoDistance(last, remaining[i]);
+      if (d < nearestDist) { nearestDist = d; nearestIdx = i; }
+    }
+    result.push(remaining.splice(nearestIdx, 1)[0]);
+  }
+  return result;
+}
+
+function minsToTime(totalMins: number) {
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  const ampm = h >= 12 ? "PM" : "AM";
+  const hour = h > 12 ? h - 12 : h === 0 ? 12 : h;
+  return `${hour}:${m.toString().padStart(2, "0")} ${ampm}`;
+}
+
+// Vilnius-area sunset times for each trip day (Lithuania summer, UTC+3)
+const SUNSET: Record<string, string> = {
+  "2026-07-31": "9:10 PM",
+  "2026-08-01": "9:07 PM",
+  "2026-08-02": "9:04 PM",
+  "2026-08-03": "9:00 PM",
+  "2026-08-04": "8:56 PM", // Palanga coast — slightly west, similar time
+  "2026-08-05": "8:52 PM",
+  "2026-08-06": "8:48 PM",
+};
+
+export default function ItineraryClient({ days, items, hotels, activities }: Props) {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [selectedActivityIds, setSelectedActivityIds] = useState<Set<number>>(new Set());
+  const [itinerarySuggested, setItinerarySuggested] = useState(false);
+  const [itinerarySlots, setItinerarySlots] = useState<ItinerarySlot[]>([]);
+  const [routeIds, setRouteIds] = useState<number[]>([]);
   const formRef = useRef<HTMLFormElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const selectedDay = days.find((d) => d.trip_date === selectedDate) ?? null;
   const selectedItems = selectedDay ? items.filter((i) => i.day_id === selectedDay.id) : [];
+  const activitiesForDay = selectedDay
+    ? activities.filter((a) => a.activity_date === selectedDay.trip_date)
+    : [];
   const hotelsForDay = selectedDay
     ? hotels.filter((h) => h.check_in <= selectedDay.trip_date && h.check_out > selectedDay.trip_date)
     : [];
   const sharedItems = selectedItems.filter((i) => !i.family_group || i.family_group === "all");
+  const mappedActivities = activitiesForDay.filter((a) => selectedActivityIds.has(a.id));
+
+  // Reset selection and scroll panel into view when switching days
+  useEffect(() => {
+    setSelectedActivityIds(new Set());
+    setItinerarySuggested(false);
+    setItinerarySlots([]);
+    setRouteIds([]);
+    if (selectedDate && panelRef.current) {
+      panelRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [selectedDate]);
+
+  function suggestItinerary() {
+    if (itinerarySuggested) {
+      setItinerarySuggested(false);
+      setItinerarySlots([]);
+      setRouteIds([]);
+      setSelectedActivityIds(new Set());
+      return;
+    }
+
+    const isArrivalDay = selectedDay?.trip_date === "2026-07-31";
+
+    // Separate fixed-time from flexible activities
+    const fixed = activitiesForDay.filter((a) => a.time_slot);
+    const flexible = activitiesForDay.filter((a) => !a.time_slot);
+
+    // Sort flexible by nearest-neighbor to minimize travel
+    const withCoords = flexible.filter((a) => a.lat != null && a.lng != null);
+    const withoutCoords = flexible.filter((a) => a.lat == null || a.lng == null);
+    const sortedFlexible = [...nearestNeighborSort(withCoords), ...withoutCoords];
+
+    // Build a flat list of all activities with assigned minutes
+    const timed: { activity: WishlistItem; mins: number }[] = [];
+
+    // Fixed-time activities always go at their stated time
+    fixed.forEach((a) => {
+      const [h, m] = a.time_slot!.split(":").map(Number);
+      timed.push({ activity: a, mins: h * 60 + m });
+    });
+
+    if (isArrivalDay) {
+      // Arrival day: no morning, everyone gets in and rests first.
+      // Start activities at 4:00 PM with 75-min spacing.
+      sortedFlexible.forEach((a, i) => timed.push({ activity: a, mins: 16 * 60 + i * 75 }));
+    } else {
+      // Normal day: split morning / afternoon
+      const half = Math.ceil(sortedFlexible.length / 2);
+      const flexMorning = sortedFlexible.slice(0, half);
+      const flexAfternoon = sortedFlexible.slice(half);
+      flexMorning.forEach((a, i) => timed.push({ activity: a, mins: 10 * 60 + i * 90 }));
+      flexAfternoon.forEach((a, i) => timed.push({ activity: a, mins: 14 * 60 + 30 + i * 90 }));
+    }
+
+    // Sort everything by time
+    timed.sort((a, b) => a.mins - b.mins);
+
+    // Build slots
+    const slots: ItinerarySlot[] = [];
+    const sunsetTime = SUNSET[selectedDay?.trip_date ?? ""] ?? null;
+
+    if (isArrivalDay) {
+      slots.push({ type: "meal", label: "Arrive & check in", time: "Afternoon" });
+      slots.push({ type: "meal", label: "Settle in / rest", time: "3:00 PM" });
+    } else {
+      slots.push({ type: "meal", label: "Breakfast", time: "9:00 AM" });
+    }
+
+    let lunchInserted = false;
+    let sunsetInserted = false;
+
+    for (const { activity, mins } of timed) {
+      if (!isArrivalDay && !lunchInserted && mins >= 13 * 60) {
+        slots.push({ type: "meal", label: "Lunch", time: "1:00 PM" });
+        lunchInserted = true;
+      }
+      if (sunsetTime && !sunsetInserted && mins >= 21 * 60) {
+        slots.push({ type: "meal", label: "Sunset", time: sunsetTime });
+        sunsetInserted = true;
+      }
+      slots.push({ type: "activity", activity, time: minsToTime(mins) });
+    }
+
+    if (!isArrivalDay && !lunchInserted) {
+      slots.push({ type: "meal", label: "Lunch", time: "1:00 PM" });
+    }
+    if (sunsetTime && !sunsetInserted) {
+      slots.push({ type: "meal", label: "Sunset", time: sunsetTime });
+    }
+
+    setItinerarySlots(slots);
+    setRouteIds(timed.map((t) => t.activity.id));
+    setSelectedActivityIds(new Set(timed.map((t) => t.activity.id)));
+    setItinerarySuggested(true);
+  }
+
+  function toggleActivity(id: number) {
+    setSelectedActivityIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   function select(date: string) {
     if (selectedDate === date) {
@@ -93,12 +260,13 @@ export default function ItineraryClient({ days, items, hotels }: Props) {
           const theme = day.city ? (CITY_THEME[day.city] ?? DEFAULT_THEME) : DEFAULT_THEME;
           const isSelected = selectedDate === day.trip_date;
           const dayItems = items.filter((i) => i.day_id === day.id);
+          const dayActivities = activities.filter((a) => a.activity_date === day.trip_date);
 
           return (
-            <button
+            <div
               key={day.id}
               onClick={() => select(day.trip_date)}
-              className={`text-left rounded-2xl overflow-hidden shadow-sm transition-all duration-150 focus:outline-none
+              className={`cursor-pointer text-left rounded-2xl overflow-hidden shadow-sm transition-all duration-150
                 ${isSelected
                   ? "ring-2 ring-amber-400 shadow-lg scale-[1.02]"
                   : "hover:shadow-md hover:scale-[1.01]"
@@ -122,25 +290,49 @@ export default function ItineraryClient({ days, items, hotels }: Props) {
                 <p className="text-2xl font-bold text-gray-900 leading-tight">
                   {formatDate(day.trip_date)}
                 </p>
-                {day.city ? (
-                  <span className={`self-start text-xs font-medium px-2.5 py-0.5 rounded-full ${theme.badge} ${theme.badgeText}`}>
-                    {day.city}
-                  </span>
-                ) : (
-                  <span className="text-xs text-gray-300 italic">No city set</span>
-                )}
                 {day.summary && (
                   <p className="text-sm text-gray-400 mt-1 line-clamp-2">{day.summary}</p>
                 )}
+                {dayActivities.length > 0 && (
+                  <ul className="mt-1.5 space-y-1">
+                    {dayActivities.map((a) => (
+                      <li key={a.id}>
+                        {a.url ? (
+                          <a
+                            href={a.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex items-center gap-1.5 text-xs text-amber-600 hover:text-amber-800 hover:underline group"
+                          >
+                            {a.image_url
+                              ? <img src={a.image_url} alt="" className="w-5 h-5 rounded object-cover shrink-0" />
+                              : <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                            }
+                            <span className="truncate">{a.title}</span>
+                          </a>
+                        ) : (
+                          <span className="flex items-center gap-1.5 text-xs text-gray-500">
+                            {a.image_url
+                              ? <img src={a.image_url} alt="" className="w-5 h-5 rounded object-cover shrink-0" />
+                              : <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                            }
+                            <span className="truncate">{a.title}</span>
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
-            </button>
+            </div>
           );
         })}
       </div>
 
       {/* ── Expanded panel ── */}
       {selectedDay && (
-        <div className="bg-white rounded-2xl border-2 border-amber-300 shadow-lg overflow-hidden">
+        <div ref={panelRef} className="bg-white rounded-2xl border-2 border-amber-300 shadow-lg overflow-hidden">
           {/* Panel header */}
           <div className={`${selectedDay.city ? (CITY_THEME[selectedDay.city]?.bar ?? "bg-gray-400") : "bg-gray-400"} px-6 py-4 flex items-center justify-between`}>
             <div>
@@ -199,40 +391,159 @@ export default function ItineraryClient({ days, items, hotels }: Props) {
           </div>
 
           <div className="p-6 space-y-6">
-            <DayMapWrapper hotels={hotelsForDay} />
+            <DayMapWrapper hotels={hotelsForDay} activities={mappedActivities} routeIds={routeIds} />
 
-            {/* For Everyone */}
-            <div className="bg-white rounded-xl border border-gray-200">
-              <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 rounded-t-xl flex items-center justify-between">
-                <div>
-                  <h3 className="font-semibold text-gray-800 text-sm">For Everyone</h3>
-                  <p className="text-xs text-gray-400 mt-0.5">Shared activities &amp; group plans</p>
+            {/* Activities from Activities tab */}
+            {activitiesForDay.length > 0 && (
+              <div className="bg-white rounded-xl border border-gray-200">
+                <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 rounded-t-xl flex items-center justify-between">
+                  <h3 className="font-semibold text-gray-800 text-sm">Activities</h3>
+                  <div className="flex items-center gap-3">
+                    {!itinerarySuggested && (
+                      <>
+                        <span className="text-xs text-gray-400">
+                          {selectedActivityIds.size > 0 ? `${selectedActivityIds.size} on map` : "click to map"}
+                        </span>
+                        {(() => {
+                          const allSelected = activitiesForDay.every((a) => selectedActivityIds.has(a.id));
+                          return (
+                            <button
+                              onClick={() => setSelectedActivityIds(allSelected ? new Set() : new Set(activitiesForDay.map((a) => a.id)))}
+                              className="text-xs font-medium text-amber-600 hover:text-amber-800 transition-colors"
+                            >
+                              {allSelected ? "Deselect all" : "Select all"}
+                            </button>
+                          );
+                        })()}
+                      </>
+                    )}
+                    <button
+                      onClick={suggestItinerary}
+                      className={`text-xs font-semibold px-2.5 py-1 rounded-full transition-colors ${
+                        itinerarySuggested
+                          ? "bg-amber-500 text-white hover:bg-amber-600"
+                          : "bg-gray-800 text-white hover:bg-gray-900"
+                      }`}
+                    >
+                      {itinerarySuggested ? "Clear itinerary" : "Suggest itinerary"}
+                    </button>
+                  </div>
                 </div>
-                {sharedItems.length > 0 && (
-                  <span className="text-xs text-gray-400">{sharedItems.length} item{sharedItems.length !== 1 ? "s" : ""}</span>
+
+                {itinerarySuggested ? (
+                  /* ── Suggested itinerary view ── */
+                  <div className="divide-y divide-gray-100">
+                    {itinerarySlots.map((slot, i) => {
+                      if (slot.type === "meal") {
+                        const isSunset = slot.label === "Sunset";
+                        return (
+                          <div key={i} className={`px-4 py-2 flex items-center gap-3 ${isSunset ? "bg-orange-50" : "bg-gray-50"}`}>
+                            <span className={`text-xs font-bold w-16 shrink-0 ${isSunset ? "text-orange-400" : "text-gray-400"}`}>{slot.time}</span>
+                            <span className={`text-xs font-semibold uppercase tracking-wide ${isSunset ? "text-orange-500" : "text-gray-500"}`}>
+                              {isSunset ? "Sunset" : slot.label}
+                            </span>
+                          </div>
+                        );
+                      }
+                      const { activity, time } = slot;
+                      const interested = FAMILIES.filter((f) => activity[FAMILY_INTEREST[f.key]] as number);
+                      return (
+                        <div key={activity.id} className="px-4 py-3 flex items-center gap-3 bg-amber-50/40">
+                          <span className="text-xs font-bold text-amber-600 w-16 shrink-0">{time}</span>
+                          {activity.image_url && (
+                            <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0">
+                              <img src={activity.image_url} alt="" className="w-full h-full object-cover" />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-gray-800">{activity.title}</p>
+                            <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                              {activity.url && (
+                                <a href={activity.url} target="_blank" rel="noopener noreferrer"
+                                  className="text-xs text-amber-600 hover:underline inline-flex items-center gap-1">
+                                  More info
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                                </a>
+                              )}
+                              {activity.wiki_url && (
+                                <a href={activity.wiki_url} target="_blank" rel="noopener noreferrer"
+                                  className="text-xs text-blue-500 hover:underline inline-flex items-center gap-1">
+                                  Learn More
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                          {interested.length > 0 && (
+                            <div className="flex items-center gap-1 shrink-0">
+                              {interested.map((f) => (
+                                <div key={f.key} className="w-5 h-5 rounded-full overflow-hidden border border-white shadow-sm">
+                                  <img src={`/families/${f.key}.png`} alt={f.label} className="w-full h-full object-cover" />
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  /* ── Normal activity list ── */
+                  <div className="divide-y divide-gray-100">
+                    {activitiesForDay.map((a) => {
+                      const isPinned = selectedActivityIds.has(a.id);
+                      const interested = FAMILIES.filter((f) => a[FAMILY_INTEREST[f.key]] as number);
+                      return (
+                        <div key={a.id} onClick={() => toggleActivity(a.id)}
+                          className={`px-4 py-3 flex items-center gap-3 cursor-pointer transition-colors ${isPinned ? "bg-amber-50" : "hover:bg-gray-50"}`}
+                        >
+                          <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-colors ${isPinned ? "bg-amber-500 text-white" : "bg-gray-100 text-gray-400"}`}>
+                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+                            </svg>
+                          </div>
+                          {a.image_url && (
+                            <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0">
+                              <img src={a.image_url} alt="" className="w-full h-full object-cover" />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-sm font-semibold ${isPinned ? "text-amber-900" : "text-gray-800"}`}>{a.title}</p>
+                            <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                              {a.url && (
+                                <a href={a.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                                  className="text-xs text-amber-600 hover:underline inline-flex items-center gap-1">
+                                  More info
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                                </a>
+                              )}
+                              {a.wiki_url && (
+                                <a href={a.wiki_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                                  className="text-xs text-blue-500 hover:underline inline-flex items-center gap-1">
+                                  Learn More
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                          {interested.length > 0 && (
+                            <div className="flex items-center gap-1 shrink-0">
+                              {interested.map((f) => (
+                                <div key={f.key} className="w-5 h-5 rounded-full overflow-hidden border border-white shadow-sm">
+                                  <img src={`/families/${f.key}.png`} alt={f.label} className="w-full h-full object-cover" />
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
-              <div className="px-4 py-3">
-                {sharedItems.length === 0
-                  ? <p className="text-sm text-gray-400 italic mb-2">Nothing planned for the whole group yet</p>
-                  : (
-                    <div className="divide-y divide-gray-100 mb-2">
-                      {sharedItems
-                        .sort((a, b) => {
-                          if (a.time_slot && b.time_slot) return a.time_slot.localeCompare(b.time_slot);
-                          if (a.time_slot) return -1;
-                          if (b.time_slot) return 1;
-                          return a.sort_order - b.sort_order;
-                        })
-                        .map((item) => <DayItemRow key={item.id} item={item} />)}
-                    </div>
-                  )
-                }
-                <AddItemForm dayId={selectedDay.id} familyGroup={null} label="shared activity" />
-              </div>
-            </div>
+            )}
 
-            {/* Family sections */}
+            {/* Family hotel sections */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {FAMILIES.map((family) => (
                 <FamilySection
@@ -240,7 +551,7 @@ export default function ItineraryClient({ days, items, hotels }: Props) {
                   familyKey={family.key}
                   dayId={selectedDay.id}
                   dayDate={selectedDay.trip_date}
-                  items={selectedItems.filter((i) => i.family_group === family.key)}
+                  items={[]}
                   hotel={hotelsForDay.find((h) => h.family_group === family.key) ?? null}
                 />
               ))}

@@ -6,13 +6,13 @@ import { addActivity } from "@/app/actions/activities";
 const CITIES = ["Vilnius", "Kaunas", "Palanga"];
 
 const TRIP_DATES = [
-  { value: "2025-07-31", label: "Thu Jul 31 — Day 1" },
-  { value: "2025-08-01", label: "Fri Aug 1 — Day 2" },
-  { value: "2025-08-02", label: "Sat Aug 2 — Day 3" },
-  { value: "2025-08-03", label: "Sun Aug 3 — Day 4" },
-  { value: "2025-08-04", label: "Mon Aug 4 — Day 5" },
-  { value: "2025-08-05", label: "Tue Aug 5 — Day 6" },
-  { value: "2025-08-06", label: "Wed Aug 6 — Day 7" },
+  { value: "2026-07-31", label: "Fri Jul 31 — Day 1" },
+  { value: "2026-08-01", label: "Sat Aug 1 — Day 2" },
+  { value: "2026-08-02", label: "Sun Aug 2 — Day 3" },
+  { value: "2026-08-03", label: "Mon Aug 3 — Day 4" },
+  { value: "2026-08-04", label: "Tue Aug 4 — Day 5" },
+  { value: "2026-08-05", label: "Wed Aug 5 — Day 6" },
+  { value: "2026-08-06", label: "Thu Aug 6 — Day 7" },
 ];
 
 export default function AddActivityForm() {
@@ -60,6 +60,15 @@ export default function AddActivityForm() {
             <option value="">Any day</option>
             {TRIP_DATES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
           </select>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Time <span className="text-gray-300">(optional)</span></label>
+          <input
+            type="time"
+            name="time_slot"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+          />
         </div>
 
         <div>
