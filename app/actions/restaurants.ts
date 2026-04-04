@@ -36,8 +36,8 @@ export async function addRestaurant(formData: FormData) {
   const latStr = formData.get("lat") as string;
   const lngStr = formData.get("lng") as string;
   await dbRun(
-    `INSERT INTO restaurants (name, city, meal_type, activity_date, url, address, notes, image_url, lat, lng)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO restaurants (name, city, meal_type, activity_date, url, address, cuisine, notes, image_url, lat, lng)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       name,
       (formData.get("city") as string) || null,
@@ -45,6 +45,7 @@ export async function addRestaurant(formData: FormData) {
       (formData.get("activity_date") as string) || null,
       url,
       (formData.get("address") as string) || null,
+      (formData.get("cuisine") as string) || null,
       (formData.get("notes") as string) || null,
       imageUrl,
       latStr ? parseFloat(latStr) : null,
@@ -70,7 +71,7 @@ export async function updateRestaurant(id: number, formData: FormData) {
   const latStr = formData.get("lat") as string;
   const lngStr = formData.get("lng") as string;
   await dbRun(
-    `UPDATE restaurants SET name=?, city=?, meal_type=?, activity_date=?, url=?, address=?, notes=?, image_url=?, lat=?, lng=? WHERE id=?`,
+    `UPDATE restaurants SET name=?, city=?, meal_type=?, activity_date=?, url=?, address=?, cuisine=?, notes=?, image_url=?, lat=?, lng=? WHERE id=?`,
     [
       name,
       (formData.get("city") as string) || null,
@@ -78,6 +79,7 @@ export async function updateRestaurant(id: number, formData: FormData) {
       (formData.get("activity_date") as string) || null,
       url,
       (formData.get("address") as string) || null,
+      (formData.get("cuisine") as string) || null,
       (formData.get("notes") as string) || null,
       imageUrl,
       latStr ? parseFloat(latStr) : null,
@@ -128,14 +130,15 @@ export async function addAndAssignRestaurant(
   lng: number | null,
   url: string | null,
   city: string | null,
+  cuisine: string | null,
   date: string,
   mealType: "lunch" | "dinner"
 ) {
   const imageUrl = url ? await fetchOgImage(url) : null;
   await dbRun(
-    `INSERT INTO restaurants (name, city, meal_type, activity_date, url, address, image_url, lat, lng)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [name, city, mealType, date, url, address, imageUrl, lat, lng]
+    `INSERT INTO restaurants (name, city, meal_type, activity_date, url, address, cuisine, image_url, lat, lng)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [name, city, mealType, date, url, address, cuisine, imageUrl, lat, lng]
   );
   revalidate();
 }

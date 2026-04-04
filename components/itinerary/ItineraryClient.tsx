@@ -794,6 +794,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                     )}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-800">{r.name}</p>
+                      {r.cuisine && <p className="text-xs text-indigo-600 font-medium mt-0.5">{r.cuisine}</p>}
                       {r.address && <p className="text-xs text-gray-400 mt-0.5">{r.address}</p>}
                       {r.notes && <p className="text-xs text-gray-500 italic mt-0.5">{r.notes}</p>}
                       <div className="flex gap-3 mt-1">
@@ -869,7 +870,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                             key={i}
                             type="button"
                             onClick={() => {
-                              addAndAssignRestaurant(p.name, p.address || null, p.lat, p.lng, p.url || null, city, date, meal);
+                              addAndAssignRestaurant(p.name, p.address || null, p.lat, p.lng, p.url || null, city, p.cuisine, date, meal);
                               setRestaurantSuggestions(null);
                             }}
                             className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 transition-colors"

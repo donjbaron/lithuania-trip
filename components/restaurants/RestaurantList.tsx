@@ -63,6 +63,8 @@ function RestaurantRow({ item }: { item: Restaurant }) {
             className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
           <input type="text" name="address" defaultValue={item.address ?? ""} placeholder="Address"
             className="sm:col-span-2 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+          <input type="text" name="cuisine" defaultValue={item.cuisine ?? ""} placeholder="Cuisine (e.g. Lithuanian, Italian…)"
+            className="sm:col-span-2 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
           <textarea name="notes" defaultValue={item.notes ?? ""} placeholder="Notes"
             className="sm:col-span-2 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none" rows={2} />
         </div>
@@ -97,6 +99,7 @@ function RestaurantRow({ item }: { item: Restaurant }) {
                 <span className="text-xs text-gray-400">{item.city}</span>
               )}
             </div>
+            {item.cuisine && <p className="text-xs text-indigo-600 font-medium mt-0.5">{item.cuisine}</p>}
             {item.address && <p className="text-xs text-gray-400 mt-0.5">{item.address}</p>}
             {item.notes && <p className="text-xs text-gray-500 mt-0.5 italic">{item.notes}</p>}
             <div className="flex items-center gap-3 mt-1 flex-wrap">

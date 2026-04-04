@@ -116,6 +116,7 @@ async function initSchema() {
     "ALTER TABLE wishlist_items ADD COLUMN address TEXT",
     "ALTER TABLE restaurants ADD COLUMN lat REAL",
     "ALTER TABLE restaurants ADD COLUMN lng REAL",
+    "ALTER TABLE restaurants ADD COLUMN cuisine TEXT",
   ];
 
   for (const sql of migrations) {

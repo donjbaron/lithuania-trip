@@ -74,6 +74,7 @@ export interface Restaurant {
   activity_date: string | null;
   url: string | null;
   address: string | null;
+  cuisine: string | null;
   notes: string | null;
   image_url: string | null;
   interested_family1: number;

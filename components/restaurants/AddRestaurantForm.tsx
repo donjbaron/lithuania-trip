@@ -200,6 +200,12 @@ export default function AddRestaurantForm() {
         </div>
 
         <div className="sm:col-span-2">
+          <label className="block text-xs font-medium text-gray-500 mb-1">Cuisine <span className="text-gray-300">(optional)</span></label>
+          <input type="text" name="cuisine" placeholder="e.g. Lithuanian, Italian, Seafood…"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+        </div>
+
+        <div className="sm:col-span-2">
           <label className="block text-xs font-medium text-gray-500 mb-1">Notes <span className="text-gray-300">(optional)</span></label>
           <textarea name="notes" placeholder="e.g. Great cepelinai, need reservation…" rows={2}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none" />
