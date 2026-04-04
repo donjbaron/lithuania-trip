@@ -135,13 +135,14 @@ async function initSchema() {
 export async function dbAll<T>(sql: string, args: InValue[] = []): Promise<T[]> {
   await ready;
   const result = await client.execute({ sql, args });
-  return result.rows as unknown as T[];
+  return result.rows.map((row) => ({ ...row })) as unknown as T[];
 }
 
 export async function dbGet<T>(sql: string, args: InValue[] = []): Promise<T | undefined> {
   await ready;
   const result = await client.execute({ sql, args });
-  return (result.rows[0] ?? undefined) as T | undefined;
+  const row = result.rows[0];
+  return row ? ({ ...row } as unknown as T) : undefined;
 }
 
 export async function dbRun(sql: string, args: InValue[] = []): Promise<void> {
