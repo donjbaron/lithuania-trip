@@ -206,7 +206,7 @@ export default function DayTile({ day, dayNumber, items, hotels }: Props) {
 
           <div className="p-5 space-y-5">
             {/* Map */}
-            <DayMapWrapper hotels={hotelsForDay} />
+            <DayMapWrapper hotels={hotelsForDay} activities={[]} />
 
             {/* For Everyone */}
             <div className="bg-white rounded-xl border border-gray-200">

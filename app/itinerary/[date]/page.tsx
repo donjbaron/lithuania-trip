@@ -143,7 +143,7 @@ export default async function DayPage({
       </div>
 
       {/* Map */}
-      <DayMapWrapper hotels={hotels} />
+      <DayMapWrapper hotels={hotels} activities={[]} />
 
       {/* Shared activities */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
