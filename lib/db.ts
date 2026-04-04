@@ -82,6 +82,8 @@ async function initSchema() {
       interested_family1 INTEGER NOT NULL DEFAULT 0,
       interested_family2 INTEGER NOT NULL DEFAULT 0,
       interested_family3 INTEGER NOT NULL DEFAULT 0,
+      lat         REAL,
+      lng         REAL,
       created_at  TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
     `CREATE INDEX IF NOT EXISTS idx_items_day_id ON itinerary_items(day_id)`,
@@ -112,6 +114,8 @@ async function initSchema() {
     "ALTER TABLE wishlist_items ADD COLUMN lat REAL",
     "ALTER TABLE wishlist_items ADD COLUMN lng REAL",
     "ALTER TABLE wishlist_items ADD COLUMN address TEXT",
+    "ALTER TABLE restaurants ADD COLUMN lat REAL",
+    "ALTER TABLE restaurants ADD COLUMN lng REAL",
   ];
 
   for (const sql of migrations) {

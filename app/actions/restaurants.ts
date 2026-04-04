@@ -33,9 +33,11 @@ export async function addRestaurant(formData: FormData) {
   const url = (formData.get("url") as string) || null;
   const imageUrl = url ? await fetchOgImage(url) : null;
 
+  const latStr = formData.get("lat") as string;
+  const lngStr = formData.get("lng") as string;
   await dbRun(
-    `INSERT INTO restaurants (name, city, meal_type, activity_date, url, address, notes, image_url)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO restaurants (name, city, meal_type, activity_date, url, address, notes, image_url, lat, lng)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       name,
       (formData.get("city") as string) || null,
@@ -45,6 +47,8 @@ export async function addRestaurant(formData: FormData) {
       (formData.get("address") as string) || null,
       (formData.get("notes") as string) || null,
       imageUrl,
+      latStr ? parseFloat(latStr) : null,
+      lngStr ? parseFloat(lngStr) : null,
     ]
   );
   revalidate();
@@ -63,8 +67,10 @@ export async function updateRestaurant(id: number, formData: FormData) {
   if (url && url !== existing?.url) imageUrl = await fetchOgImage(url);
   else if (!url) imageUrl = null;
 
+  const latStr = formData.get("lat") as string;
+  const lngStr = formData.get("lng") as string;
   await dbRun(
-    `UPDATE restaurants SET name=?, city=?, meal_type=?, activity_date=?, url=?, address=?, notes=?, image_url=? WHERE id=?`,
+    `UPDATE restaurants SET name=?, city=?, meal_type=?, activity_date=?, url=?, address=?, notes=?, image_url=?, lat=?, lng=? WHERE id=?`,
     [
       name,
       (formData.get("city") as string) || null,
@@ -74,6 +80,8 @@ export async function updateRestaurant(id: number, formData: FormData) {
       (formData.get("address") as string) || null,
       (formData.get("notes") as string) || null,
       imageUrl,
+      latStr ? parseFloat(latStr) : null,
+      lngStr ? parseFloat(lngStr) : null,
       id,
     ]
   );

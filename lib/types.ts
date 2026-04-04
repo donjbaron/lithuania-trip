@@ -79,6 +79,8 @@ export interface Restaurant {
   interested_family1: number;
   interested_family2: number;
   interested_family3: number;
+  lat: number | null;
+  lng: number | null;
   created_at: string;
 }
 
