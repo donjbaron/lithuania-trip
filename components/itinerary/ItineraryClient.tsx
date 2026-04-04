@@ -11,6 +11,7 @@ import {
   LITHUANIAN_CITIES,
 } from "@/lib/types";
 import { updateDay } from "@/app/actions/itinerary";
+import { moveActivitiesToDay } from "@/app/actions/activities";
 import FamilySection from "./FamilySection";
 import DayItemRow from "./DayItemRow";
 import AddItemForm from "./AddItemForm";
@@ -113,6 +114,64 @@ const SUNSET: Record<string, string> = {
   "2026-08-06": "8:48 PM",
 };
 
+const TOO_BUSY = 4;
+
+function buildDayItinerary(
+  activitiesForDay: WishlistItem[],
+  isArrivalDay: boolean,
+  date: string,
+): {
+  timed: { activity: WishlistItem; mins: number }[];
+  slots: ItinerarySlot[];
+  excess: WishlistItem[];
+} {
+  const fixed = activitiesForDay.filter((a) => a.time_slot);
+  const flexible = activitiesForDay.filter((a) => !a.time_slot);
+  const withCoords = flexible.filter((a) => a.lat != null && a.lng != null);
+  const withoutCoords = flexible.filter((a) => a.lat == null || a.lng == null);
+  const sortedFlexible = [...nearestNeighborSort(withCoords), ...withoutCoords];
+
+  const timed: { activity: WishlistItem; mins: number }[] = [];
+  fixed.forEach((a) => {
+    const [h, m] = a.time_slot!.split(":").map(Number);
+    timed.push({ activity: a, mins: h * 60 + m });
+  });
+
+  if (isArrivalDay) {
+    const lastArrivalMins = fixed.length > 0
+      ? Math.max(...fixed.map((a) => { const [h, m] = a.time_slot!.split(":").map(Number); return h * 60 + m; }))
+      : 16 * 60;
+    sortedFlexible.forEach((a, i) => timed.push({ activity: a, mins: lastArrivalMins + 90 + i * 75 }));
+  } else {
+    const half = Math.ceil(sortedFlexible.length / 2);
+    sortedFlexible.slice(0, half).forEach((a, i) => timed.push({ activity: a, mins: 10 * 60 + i * 90 }));
+    sortedFlexible.slice(half).forEach((a, i) => timed.push({ activity: a, mins: 14 * 60 + 30 + i * 90 }));
+  }
+  timed.sort((a, b) => a.mins - b.mins);
+
+  const slots: ItinerarySlot[] = [];
+  const sunsetTime = SUNSET[date] ?? null;
+  if (!isArrivalDay) slots.push({ type: "meal", label: "Breakfast", time: "9:00 AM" });
+
+  let lunchInserted = false, sunsetInserted = false;
+  for (const { activity, mins } of timed) {
+    if (!isArrivalDay && !lunchInserted && mins >= 13 * 60) {
+      slots.push({ type: "meal", label: "Lunch", time: "1:00 PM" });
+      lunchInserted = true;
+    }
+    if (sunsetTime && !sunsetInserted && mins >= 21 * 60) {
+      slots.push({ type: "meal", label: "Sunset", time: sunsetTime });
+      sunsetInserted = true;
+    }
+    slots.push({ type: "activity", activity, time: minsToTime(mins) });
+  }
+  if (!isArrivalDay && !lunchInserted) slots.push({ type: "meal", label: "Lunch", time: "1:00 PM" });
+  if (sunsetTime && !sunsetInserted) slots.push({ type: "meal", label: "Sunset", time: sunsetTime });
+
+  const excess = sortedFlexible.length > TOO_BUSY ? sortedFlexible.slice(TOO_BUSY) : [];
+  return { timed, slots, excess };
+}
+
 export default function ItineraryClient({ days, items, hotels, activities }: Props) {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -121,6 +180,8 @@ export default function ItineraryClient({ days, items, hotels, activities }: Pro
   const [itinerarySlots, setItinerarySlots] = useState<ItinerarySlot[]>([]);
   const [routeIds, setRouteIds] = useState<number[]>([]);
   const [busySuggestion, setBusySuggestion] = useState<{ excess: WishlistItem[]; nextDay: ItineraryDay | null } | null>(null);
+  const [allBusyDays, setAllBusyDays] = useState<Record<string, { excess: WishlistItem[]; nextDay: ItineraryDay | null }>>({});
+  const autoSuggestRef = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -135,6 +196,21 @@ export default function ItineraryClient({ days, items, hotels, activities }: Pro
   const sharedItems = selectedItems.filter((i) => !i.family_group || i.family_group === "all");
   const mappedActivities = activitiesForDay.filter((a) => selectedActivityIds.has(a.id));
 
+  // Background: compute itinerary for all days to detect busy ones
+  useEffect(() => {
+    const busy: Record<string, { excess: WishlistItem[]; nextDay: ItineraryDay | null }> = {};
+    for (let i = 0; i < days.length; i++) {
+      const day = days[i];
+      const dayActs = activities.filter((a) => a.activity_date === day.trip_date);
+      if (dayActs.length === 0) continue;
+      const { excess } = buildDayItinerary(dayActs, day.trip_date === "2026-07-31", day.trip_date);
+      if (excess.length > 0) {
+        busy[day.trip_date] = { excess, nextDay: i < days.length - 1 ? days[i + 1] : null };
+      }
+    }
+    setAllBusyDays(busy);
+  }, [activities, days]);
+
   // Reset selection and scroll panel into view when switching days
   useEffect(() => {
     setSelectedActivityIds(new Set());
@@ -142,9 +218,24 @@ export default function ItineraryClient({ days, items, hotels, activities }: Pro
     setItinerarySlots([]);
     setRouteIds([]);
     setBusySuggestion(null);
-    if (selectedDate && panelRef.current) {
-      panelRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    if (!selectedDate) return;
+
+    if (autoSuggestRef.current) {
+      autoSuggestRef.current = false;
+      const dayActs = activities.filter((a) => a.activity_date === selectedDate);
+      const isArrival = selectedDate === "2026-07-31";
+      const { timed, slots, excess } = buildDayItinerary(dayActs, isArrival, selectedDate);
+      const idx = days.findIndex((d) => d.trip_date === selectedDate);
+      const nextDay = idx >= 0 && idx < days.length - 1 ? days[idx + 1] : null;
+      setItinerarySlots(slots);
+      setRouteIds(timed.map((t) => t.activity.id));
+      setSelectedActivityIds(new Set(timed.map((t) => t.activity.id)));
+      setItinerarySuggested(true);
+      if (excess.length > 0) setBusySuggestion({ excess, nextDay });
     }
+
+    setTimeout(() => panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   }, [selectedDate]);
 
   function suggestItinerary() {
@@ -158,85 +249,11 @@ export default function ItineraryClient({ days, items, hotels, activities }: Pro
     }
 
     const isArrivalDay = selectedDay?.trip_date === "2026-07-31";
+    const { timed, slots, excess } = buildDayItinerary(activitiesForDay, isArrivalDay, selectedDay?.trip_date ?? "");
+    const idx = days.findIndex((d) => d.trip_date === selectedDay?.trip_date);
+    const nextDay = idx >= 0 && idx < days.length - 1 ? days[idx + 1] : null;
 
-    // Separate fixed-time from flexible activities
-    const fixed = activitiesForDay.filter((a) => a.time_slot);
-    const flexible = activitiesForDay.filter((a) => !a.time_slot);
-
-    // Sort flexible by nearest-neighbor to minimize travel
-    const withCoords = flexible.filter((a) => a.lat != null && a.lng != null);
-    const withoutCoords = flexible.filter((a) => a.lat == null || a.lng == null);
-    const sortedFlexible = [...nearestNeighborSort(withCoords), ...withoutCoords];
-
-    // Build a flat list of all activities with assigned minutes
-    const timed: { activity: WishlistItem; mins: number }[] = [];
-
-    // Fixed-time activities always go at their stated time
-    fixed.forEach((a) => {
-      const [h, m] = a.time_slot!.split(":").map(Number);
-      timed.push({ activity: a, mins: h * 60 + m });
-    });
-
-    if (isArrivalDay) {
-      // Arrival day: find the latest arrival time from fixed activities, then add buffer.
-      // Don't schedule flexible activities until everyone is settled.
-      const lastArrivalMins = fixed.length > 0
-        ? Math.max(...fixed.map((a) => { const [h, m] = a.time_slot!.split(":").map(Number); return h * 60 + m; }))
-        : 16 * 60; // fallback to 4 PM if no arrival times set
-      const startMins = lastArrivalMins + 90; // 90-min buffer to check in and settle
-      sortedFlexible.forEach((a, i) => timed.push({ activity: a, mins: startMins + i * 75 }));
-    } else {
-      // Normal day: split morning / afternoon
-      const half = Math.ceil(sortedFlexible.length / 2);
-      const flexMorning = sortedFlexible.slice(0, half);
-      const flexAfternoon = sortedFlexible.slice(half);
-      flexMorning.forEach((a, i) => timed.push({ activity: a, mins: 10 * 60 + i * 90 }));
-      flexAfternoon.forEach((a, i) => timed.push({ activity: a, mins: 14 * 60 + 30 + i * 90 }));
-    }
-
-    // Sort everything by time
-    timed.sort((a, b) => a.mins - b.mins);
-
-    // Build slots
-    const slots: ItinerarySlot[] = [];
-    const sunsetTime = SUNSET[selectedDay?.trip_date ?? ""] ?? null;
-
-    if (!isArrivalDay) {
-      slots.push({ type: "meal", label: "Breakfast", time: "9:00 AM" });
-    }
-
-    let lunchInserted = false;
-    let sunsetInserted = false;
-
-    for (const { activity, mins } of timed) {
-      if (!isArrivalDay && !lunchInserted && mins >= 13 * 60) {
-        slots.push({ type: "meal", label: "Lunch", time: "1:00 PM" });
-        lunchInserted = true;
-      }
-      if (sunsetTime && !sunsetInserted && mins >= 21 * 60) {
-        slots.push({ type: "meal", label: "Sunset", time: sunsetTime });
-        sunsetInserted = true;
-      }
-      slots.push({ type: "activity", activity, time: minsToTime(mins) });
-    }
-
-    if (!isArrivalDay && !lunchInserted) {
-      slots.push({ type: "meal", label: "Lunch", time: "1:00 PM" });
-    }
-    if (sunsetTime && !sunsetInserted) {
-      slots.push({ type: "meal", label: "Sunset", time: sunsetTime });
-    }
-
-    // Detect busy days: more than 4 flexible activities is a lot for one day
-    const TOO_BUSY = 4;
-    if (sortedFlexible.length > TOO_BUSY) {
-      const currentIdx = days.findIndex((d) => d.trip_date === selectedDay?.trip_date);
-      const nextDay = currentIdx >= 0 && currentIdx < days.length - 1 ? days[currentIdx + 1] : null;
-      setBusySuggestion({ excess: sortedFlexible.slice(TOO_BUSY), nextDay });
-    } else {
-      setBusySuggestion(null);
-    }
-
+    setBusySuggestion(excess.length > 0 ? { excess, nextDay } : null);
     setItinerarySlots(slots);
     setRouteIds(timed.map((t) => t.activity.id));
     setSelectedActivityIds(new Set(timed.map((t) => t.activity.id)));
@@ -256,6 +273,27 @@ export default function ItineraryClient({ days, items, hotels, activities }: Pro
     if (selectedDate === date) {
       setSelectedDate(null);
     } else {
+      setSelectedDate(date);
+      setEditing(false);
+    }
+  }
+
+  function openWithSuggestion(date: string) {
+    if (selectedDate === date) {
+      // Panel already open — apply suggestion directly without re-mounting
+      const dayActs = activities.filter((a) => a.activity_date === date);
+      const isArrival = date === "2026-07-31";
+      const { timed, slots, excess } = buildDayItinerary(dayActs, isArrival, date);
+      const idx = days.findIndex((d) => d.trip_date === date);
+      const nextDay = idx >= 0 && idx < days.length - 1 ? days[idx + 1] : null;
+      setItinerarySlots(slots);
+      setRouteIds(timed.map((t) => t.activity.id));
+      setSelectedActivityIds(new Set(timed.map((t) => t.activity.id)));
+      setItinerarySuggested(true);
+      if (excess.length > 0) setBusySuggestion({ excess, nextDay });
+      setTimeout(() => panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+    } else {
+      autoSuggestRef.current = true;
       setSelectedDate(date);
       setEditing(false);
     }
@@ -306,6 +344,17 @@ export default function ItineraryClient({ days, items, hotels, activities }: Pro
                 </p>
                 {day.summary && (
                   <p className="text-sm text-gray-400 mt-1 line-clamp-2">{day.summary}</p>
+                )}
+                {allBusyDays[day.trip_date] && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); openWithSuggestion(day.trip_date); }}
+                    className="mt-1 flex items-center gap-1.5 text-xs font-medium text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-full px-2.5 py-1 hover:bg-yellow-100 transition-colors w-fit"
+                  >
+                    <svg className="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                    </svg>
+                    Busy day · see suggestion
+                  </button>
                 )}
                 {dayActivities.length > 0 && (
                   <ul className="mt-1.5 space-y-1">
@@ -445,16 +494,34 @@ export default function ItineraryClient({ days, items, hotels, activities }: Pro
                 </div>
 
                 {itinerarySuggested && busySuggestion && (
-                  <div className="mx-4 mt-3 mb-1 px-4 py-3 bg-yellow-50 border border-yellow-200 rounded-xl">
+                  <div className="mx-4 mt-3 mb-1 px-4 py-3 bg-yellow-50 border border-yellow-200 rounded-xl space-y-2">
                     <p className="text-sm font-semibold text-yellow-800">
                       This day looks packed — consider spreading it out
                     </p>
-                    <p className="text-xs text-yellow-700 mt-1 leading-relaxed">
+                    <p className="text-xs text-yellow-700 leading-relaxed">
                       <span className="font-medium">{busySuggestion.excess.map((a) => a.title).join(", ")}</span>
                       {busySuggestion.nextDay
                         ? ` could move to ${formatLongDate(busySuggestion.nextDay.trip_date)}`
                         : " could move to another day"}.
                     </p>
+                    {busySuggestion.nextDay && (
+                      <button
+                        onClick={async () => {
+                          await moveActivitiesToDay(
+                            busySuggestion!.excess.map((a) => a.id),
+                            busySuggestion!.nextDay!.trip_date,
+                          );
+                          setBusySuggestion(null);
+                          setItinerarySuggested(false);
+                          setItinerarySlots([]);
+                          setRouteIds([]);
+                          setSelectedActivityIds(new Set());
+                        }}
+                        className="text-xs font-semibold px-3 py-1.5 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
+                      >
+                        Accept — move to {formatDate(busySuggestion.nextDay.trip_date)}
+                      </button>
+                    )}
                   </div>
                 )}
                 {itinerarySuggested ? (

@@ -34,7 +34,11 @@ export async function addActivity(formData: FormData) {
   const name = (formData.get("name") as string)?.trim();
   if (!name) return;
   const url = (formData.get("url") as string) || null;
-  const imageUrl = url ? await fetchOgImage(url) : null;
+  const city = (formData.get("city") as string) || null;
+  const [imageUrl, wikiUrl] = await Promise.all([
+    url ? fetchOgImage(url) : Promise.resolve(null),
+    fetchWikiUrl(name, city),
+  ]);
   const db = getDb();
   db.prepare(
     `INSERT INTO wishlist_items
@@ -56,14 +60,33 @@ export async function addActivity(formData: FormData) {
   revalidate();
 }
 
+async function fetchWikiUrl(title: string, city: string | null): Promise<string | null> {
+  try {
+    const query = encodeURIComponent(`${title}${city ? " " + city : ""} Lithuania`);
+    const res = await fetch(
+      `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${query}&srlimit=1&format=json&origin=*`,
+      { signal: AbortSignal.timeout(4000) }
+    );
+    const data = await res.json();
+    const hit = data?.query?.search?.[0];
+    if (!hit) return null;
+    return `https://en.wikipedia.org/wiki/${encodeURIComponent(hit.title.replace(/ /g, "_"))}`;
+  } catch {
+    return null;
+  }
+}
+
 export async function updateActivity(id: number, formData: FormData) {
   const name = (formData.get("name") as string)?.trim();
   if (!name) return;
   const url = (formData.get("url") as string) || null;
+  const city = (formData.get("city") as string) || null;
 
   const db = getDb();
-  // Only re-fetch image if URL changed
-  const existing = db.prepare("SELECT url, image_url FROM wishlist_items WHERE id = ?").get(id) as { url: string | null; image_url: string | null } | undefined;
+  const existing = db.prepare("SELECT url, image_url, title, wiki_url FROM wishlist_items WHERE id = ?").get(id) as
+    { url: string | null; image_url: string | null; title: string; wiki_url: string | null } | undefined;
+
+  // Re-fetch image only if URL changed
   let imageUrl = existing?.image_url ?? null;
   if (url && url !== existing?.url) {
     imageUrl = await fetchOgImage(url);
@@ -71,18 +94,25 @@ export async function updateActivity(id: number, formData: FormData) {
     imageUrl = null;
   }
 
+  // Re-fetch Wikipedia link if title changed and no wiki_url already set via URL
+  let wikiUrl = existing?.wiki_url ?? null;
+  if (name !== existing?.title && !wikiUrl) {
+    wikiUrl = await fetchWikiUrl(name, city);
+  }
+
   db.prepare(
     `UPDATE wishlist_items
-     SET title=?, location=?, url=?, city=?, activity_date=?, time_slot=?, image_url=?
+     SET title=?, location=?, url=?, city=?, activity_date=?, time_slot=?, image_url=?, wiki_url=?
      WHERE id=?`
   ).run(
     name,
     (formData.get("location") as string) || null,
     url,
-    (formData.get("city") as string) || null,
+    city,
     (formData.get("activity_date") as string) || null,
     (formData.get("time_slot") as string) || null,
     imageUrl,
+    wikiUrl,
     id
   );
   revalidate();
@@ -106,5 +136,14 @@ export async function setAllInterest(id: number, value: 0 | 1) {
 export async function deleteActivity(id: number) {
   const db = getDb();
   db.prepare("DELETE FROM wishlist_items WHERE id = ?").run(id);
+  revalidate();
+}
+
+export async function moveActivitiesToDay(ids: number[], newDate: string) {
+  const db = getDb();
+  const stmt = db.prepare("UPDATE wishlist_items SET activity_date = ? WHERE id = ?");
+  for (const id of ids) {
+    stmt.run(newDate, id);
+  }
   revalidate();
 }
