@@ -120,6 +120,7 @@ export default function ItineraryClient({ days, items, hotels, activities }: Pro
   const [itinerarySuggested, setItinerarySuggested] = useState(false);
   const [itinerarySlots, setItinerarySlots] = useState<ItinerarySlot[]>([]);
   const [routeIds, setRouteIds] = useState<number[]>([]);
+  const [busySuggestion, setBusySuggestion] = useState<{ excess: WishlistItem[]; nextDay: ItineraryDay | null } | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -140,6 +141,7 @@ export default function ItineraryClient({ days, items, hotels, activities }: Pro
     setItinerarySuggested(false);
     setItinerarySlots([]);
     setRouteIds([]);
+    setBusySuggestion(null);
     if (selectedDate && panelRef.current) {
       panelRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
     }
@@ -151,6 +153,7 @@ export default function ItineraryClient({ days, items, hotels, activities }: Pro
       setItinerarySlots([]);
       setRouteIds([]);
       setSelectedActivityIds(new Set());
+      setBusySuggestion(null);
       return;
     }
 
@@ -222,6 +225,16 @@ export default function ItineraryClient({ days, items, hotels, activities }: Pro
     }
     if (sunsetTime && !sunsetInserted) {
       slots.push({ type: "meal", label: "Sunset", time: sunsetTime });
+    }
+
+    // Detect busy days: more than 4 flexible activities is a lot for one day
+    const TOO_BUSY = 4;
+    if (sortedFlexible.length > TOO_BUSY) {
+      const currentIdx = days.findIndex((d) => d.trip_date === selectedDay?.trip_date);
+      const nextDay = currentIdx >= 0 && currentIdx < days.length - 1 ? days[currentIdx + 1] : null;
+      setBusySuggestion({ excess: sortedFlexible.slice(TOO_BUSY), nextDay });
+    } else {
+      setBusySuggestion(null);
     }
 
     setItinerarySlots(slots);
@@ -431,6 +444,19 @@ export default function ItineraryClient({ days, items, hotels, activities }: Pro
                   </div>
                 </div>
 
+                {itinerarySuggested && busySuggestion && (
+                  <div className="mx-4 mt-3 mb-1 px-4 py-3 bg-yellow-50 border border-yellow-200 rounded-xl">
+                    <p className="text-sm font-semibold text-yellow-800">
+                      This day looks packed — consider spreading it out
+                    </p>
+                    <p className="text-xs text-yellow-700 mt-1 leading-relaxed">
+                      <span className="font-medium">{busySuggestion.excess.map((a) => a.title).join(", ")}</span>
+                      {busySuggestion.nextDay
+                        ? ` could move to ${formatLongDate(busySuggestion.nextDay.trip_date)}`
+                        : " could move to another day"}.
+                    </p>
+                  </div>
+                )}
                 {itinerarySuggested ? (
                   /* ── Suggested itinerary view ── */
                   <div className="divide-y divide-gray-100">
