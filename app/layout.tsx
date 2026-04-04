@@ -29,18 +29,18 @@ export default function RootLayout({
             <div className="flex-1" style={{ backgroundColor: "#006A44" }} />
             <div className="flex-1" style={{ backgroundColor: "#C1272D" }} />
           </div>
-          <div className="relative px-4 py-4 overflow-hidden" style={{ backgroundColor: "#006A44" }}>
+          <div className="relative px-4 py-3 overflow-hidden" style={{ backgroundColor: "#006A44" }}>
             <HeaderImage />
-            <div className="relative max-w-5xl mx-auto flex items-center gap-4">
+            <div className="relative max-w-5xl mx-auto flex items-center gap-3">
               {/* Flag icon */}
-              <div className="shrink-0 w-10 h-7 rounded-sm overflow-hidden shadow border border-white/20 flex flex-col">
+              <div className="shrink-0 w-8 h-6 sm:w-10 sm:h-7 rounded-sm overflow-hidden shadow border border-white/20 flex flex-col">
                 <div className="flex-1" style={{ backgroundColor: "#FDB913" }} />
                 <div className="flex-1" style={{ backgroundColor: "#006A44" }} />
                 <div className="flex-1" style={{ backgroundColor: "#C1272D" }} />
               </div>
               <div>
-                <h1 className="text-xl font-bold tracking-tight">Lithuania Trip 2026</h1>
-                <p className="text-green-200 text-sm mt-0.5">
+                <h1 className="text-base sm:text-xl font-bold tracking-tight">Lithuania Trip 2026</h1>
+                <p className="text-green-200 text-xs sm:text-sm mt-0.5 leading-snug">
                   Don, Tova, Jake &amp; Tali &middot; Misha &amp; Sophie &middot; Judy, Paul &amp; Raquel
                 </p>
               </div>
@@ -48,7 +48,7 @@ export default function RootLayout({
           </div>
         </header>
         <TabNav />
-        <main className="max-w-5xl mx-auto px-4 py-6 w-full">{children}</main>
+        <main className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 w-full">{children}</main>
       </body>
     </html>
   );

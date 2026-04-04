@@ -81,7 +81,7 @@ function RestaurantRow({ item }: { item: Restaurant }) {
   return (
     <div className="flex divide-x divide-gray-100">
       {item.image_url && (
-        <div className="w-24 shrink-0">
+        <div className="w-16 sm:w-24 shrink-0">
           <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" />
         </div>
       )}

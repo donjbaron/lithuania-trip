@@ -436,21 +436,21 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                 }`}
             >
               {/* Color bar */}
-              <div className={`${theme.bar} px-5 py-3 flex items-center justify-between`}>
-                <span className="text-white text-sm font-bold uppercase tracking-widest opacity-90">
+              <div className={`${theme.bar} px-3 sm:px-5 py-2 sm:py-3 flex items-center justify-between`}>
+                <span className="text-white text-xs sm:text-sm font-bold uppercase tracking-widest opacity-90">
                   Day {getDayNumber(day.trip_date)}
                 </span>
                 {dayItems.length > 0 && (
                   <span className="text-white text-xs opacity-70">
-                    {dayItems.length} item{dayItems.length !== 1 ? "s" : ""}
+                    {dayItems.length}
                   </span>
                 )}
               </div>
 
               {/* Tile body */}
-              <div className="bg-white px-5 py-4 min-h-[140px] flex flex-col gap-1.5">
+              <div className="bg-white px-3 sm:px-5 py-3 sm:py-4 min-h-[120px] sm:min-h-[140px] flex flex-col gap-1">
                 <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">{formatWeekday(day.trip_date)}</p>
-                <p className="text-2xl font-bold text-gray-900 leading-tight">
+                <p className="text-xl sm:text-2xl font-bold text-gray-900 leading-tight">
                   {formatDate(day.trip_date)}
                 </p>
                 {day.summary && (
@@ -508,19 +508,19 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
       {selectedDay && (
         <div ref={panelRef} className="bg-white rounded-2xl border-2 border-amber-300 shadow-lg overflow-hidden">
           {/* Panel header */}
-          <div className={`${selectedDay.city ? (CITY_THEME[selectedDay.city]?.bar ?? "bg-gray-400") : "bg-gray-400"} px-6 py-4 flex items-center justify-between`}>
+          <div className={`${selectedDay.city ? (CITY_THEME[selectedDay.city]?.bar ?? "bg-gray-400") : "bg-gray-400"} px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between`}>
             <div>
               <p className="text-white text-xs font-bold uppercase tracking-widest opacity-80">
                 Day {getDayNumber(selectedDay.trip_date)}
               </p>
-              <h2 className="text-white text-2xl font-bold">{formatLongDate(selectedDay.trip_date)}</h2>
+              <h2 className="text-white text-xl sm:text-2xl font-bold leading-tight">{formatLongDate(selectedDay.trip_date)}</h2>
               {selectedDay.city && (
                 <p className="text-white text-sm opacity-80 mt-0.5">{selectedDay.city}</p>
               )}
             </div>
             <button
               onClick={() => setSelectedDate(null)}
-              className="text-white opacity-70 hover:opacity-100 transition-opacity p-1"
+              className="text-white opacity-70 hover:opacity-100 transition-opacity p-2 -mr-1"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -529,7 +529,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
           </div>
 
           {/* Edit/summary bar */}
-          <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 flex items-center gap-3">
+          <div className="px-4 sm:px-6 py-3 bg-gray-50 border-b border-gray-100 flex items-center gap-3">
             {editing ? (
               <form ref={formRef} action={handleUpdateDay} className="flex flex-col sm:flex-row gap-2 flex-1">
                 <input type="hidden" name="trip_date" value={selectedDay.trip_date} />
@@ -570,38 +570,36 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
             {/* Activities from Activities tab */}
             {activitiesForDay.length > 0 && (
               <div className="bg-white rounded-xl border border-gray-200">
-                <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 rounded-t-xl flex items-center justify-between">
-                  <h3 className="font-semibold text-gray-800 text-sm">Activities</h3>
-                  <div className="flex items-center gap-3">
-                    {!itinerarySuggested && (
-                      <>
-                        <span className="text-xs text-gray-400">
-                          {selectedActivityIds.size > 0 ? `${selectedActivityIds.size} on map` : "click to map"}
-                        </span>
-                        {(() => {
-                          const allSelected = activitiesForDay.every((a) => selectedActivityIds.has(a.id));
-                          return (
-                            <button
-                              onClick={() => setSelectedActivityIds(allSelected ? new Set() : new Set(activitiesForDay.map((a) => a.id)))}
-                              className="text-xs font-medium text-amber-600 hover:text-amber-800 transition-colors"
-                            >
-                              {allSelected ? "Deselect all" : "Select all"}
-                            </button>
-                          );
-                        })()}
-                      </>
-                    )}
-                    <button
-                      onClick={suggestItinerary}
-                      className={`text-xs font-semibold px-2.5 py-1 rounded-full transition-colors ${
-                        itinerarySuggested
-                          ? "bg-amber-500 text-white hover:bg-amber-600"
-                          : "bg-gray-800 text-white hover:bg-gray-900"
-                      }`}
-                    >
-                      {itinerarySuggested ? "Clear itinerary" : "Suggest itinerary"}
-                    </button>
-                  </div>
+                <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 rounded-t-xl flex flex-wrap items-center gap-2">
+                  <h3 className="font-semibold text-gray-800 text-sm mr-auto">Activities</h3>
+                  {!itinerarySuggested && (
+                    <>
+                      <span className="text-xs text-gray-400">
+                        {selectedActivityIds.size > 0 ? `${selectedActivityIds.size} on map` : "tap to map"}
+                      </span>
+                      {(() => {
+                        const allSelected = activitiesForDay.every((a) => selectedActivityIds.has(a.id));
+                        return (
+                          <button
+                            onClick={() => setSelectedActivityIds(allSelected ? new Set() : new Set(activitiesForDay.map((a) => a.id)))}
+                            className="text-xs font-medium text-amber-600 hover:text-amber-800 transition-colors"
+                          >
+                            {allSelected ? "Deselect all" : "Select all"}
+                          </button>
+                        );
+                      })()}
+                    </>
+                  )}
+                  <button
+                    onClick={suggestItinerary}
+                    className={`text-xs font-semibold px-2.5 py-1 rounded-full transition-colors ${
+                      itinerarySuggested
+                        ? "bg-amber-500 text-white hover:bg-amber-600"
+                        : "bg-gray-800 text-white hover:bg-gray-900"
+                    }`}
+                  >
+                    {itinerarySuggested ? "Clear" : "Suggest itinerary"}
+                  </button>
                 </div>
 
                 {itinerarySuggested && busySuggestion && (
