@@ -1,20 +1,13 @@
 export const dynamic = "force-dynamic";
 
-import { getDb } from "@/lib/db";
+import { dbAll } from "@/lib/db";
 import { type WishlistItem } from "@/lib/types";
 import WishlistClient from "@/components/wishlist/WishlistClient";
 
-function getWishlistItems(): WishlistItem[] {
-  const db = getDb();
-  return db
-    .prepare(
-      "SELECT * FROM wishlist_items ORDER BY is_done ASC, created_at ASC"
-    )
-    .all() as WishlistItem[];
-}
-
-export default function WishlistPage() {
-  const items = getWishlistItems();
+export default async function WishlistPage() {
+  const items = await dbAll<WishlistItem>(
+    "SELECT * FROM wishlist_items ORDER BY is_done ASC, created_at ASC"
+  );
 
   return (
     <div className="space-y-4">

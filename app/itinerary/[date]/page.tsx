@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getDb } from "@/lib/db";
+import { dbGet, dbAll } from "@/lib/db";
 import {
   type ItineraryDay,
   type ItineraryItem,
@@ -72,26 +72,17 @@ export default async function DayPage({
   params: Promise<{ date: string }>;
 }) {
   const { date } = await params;
-  const db = getDb();
 
-  const day = db
-    .prepare("SELECT * FROM itinerary_days WHERE trip_date = ?")
-    .get(date) as ItineraryDay | undefined;
-
+  const day = await dbGet<ItineraryDay>(
+    "SELECT * FROM itinerary_days WHERE trip_date = ?",
+    [date]
+  );
   if (!day) notFound();
 
-  const allItems = db
-    .prepare(
-      "SELECT * FROM itinerary_items WHERE day_id = ? ORDER BY sort_order ASC"
-    )
-    .all(day.id) as ItineraryItem[];
-
-  // Hotels that overlap this date across all families
-  const hotels = db
-    .prepare(
-      "SELECT * FROM accommodations WHERE check_in <= ? AND check_out > ? ORDER BY check_in ASC"
-    )
-    .all(date, date) as Accommodation[];
+  const [allItems, hotels] = await Promise.all([
+    dbAll<ItineraryItem>("SELECT * FROM itinerary_items WHERE day_id = ? ORDER BY sort_order ASC", [day.id]),
+    dbAll<Accommodation>("SELECT * FROM accommodations WHERE check_in <= ? AND check_out > ? ORDER BY check_in ASC", [date, date]),
+  ]);
 
   const sharedItems = allItems.filter(
     (i) => !i.family_group || i.family_group === "all"

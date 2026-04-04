@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import "./globals.css";
 import TabNav from "@/components/layout/TabNav";
+import HeaderImage from "@/components/layout/HeaderImage";
 
 const geist = Geist({
   variable: "--font-geist-sans",
@@ -28,8 +29,9 @@ export default function RootLayout({
             <div className="flex-1" style={{ backgroundColor: "#006A44" }} />
             <div className="flex-1" style={{ backgroundColor: "#C1272D" }} />
           </div>
-          <div className="px-4 py-4" style={{ backgroundColor: "#006A44" }}>
-            <div className="max-w-5xl mx-auto flex items-center gap-4">
+          <div className="relative px-4 py-4 overflow-hidden" style={{ backgroundColor: "#006A44" }}>
+            <HeaderImage />
+            <div className="relative max-w-5xl mx-auto flex items-center gap-4">
               {/* Flag icon */}
               <div className="shrink-0 w-10 h-7 rounded-sm overflow-hidden shadow border border-white/20 flex flex-col">
                 <div className="flex-1" style={{ backgroundColor: "#FDB913" }} />

@@ -1,28 +1,17 @@
-import Database from "better-sqlite3";
-import path from "path";
-import fs from "fs";
+import { createClient, type InValue } from "@libsql/client";
 
-const DB_DIR = path.join(process.cwd(), "data");
-const DB_PATH = path.join(DB_DIR, "trip.db");
+const client = createClient({
+  url: process.env.TURSO_DATABASE_URL!,
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
 
-let db: Database.Database | null = null;
+// Run once per module instance (cold start). All DB helpers await this.
+const ready = initSchema();
 
-export function getDb(): Database.Database {
-  if (!db) {
-    if (!fs.existsSync(DB_DIR)) {
-      fs.mkdirSync(DB_DIR, { recursive: true });
-    }
-    db = new Database(DB_PATH);
-    db.pragma("journal_mode = WAL");
-    db.pragma("foreign_keys = ON");
-    initSchema(db);
-  }
-  return db;
-}
-
-function initSchema(db: Database.Database) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS itinerary_days (
+async function initSchema() {
+  // Create tables
+  const creates = [
+    `CREATE TABLE IF NOT EXISTS itinerary_days (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       trip_date  TEXT NOT NULL UNIQUE,
       label      TEXT,
@@ -30,9 +19,8 @@ function initSchema(db: Database.Database) {
       summary    TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS itinerary_items (
+    )`,
+    `CREATE TABLE IF NOT EXISTS itinerary_items (
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       day_id       INTEGER NOT NULL REFERENCES itinerary_days(id) ON DELETE CASCADE,
       time_slot    TEXT,
@@ -42,9 +30,8 @@ function initSchema(db: Database.Database) {
       family_group TEXT,
       sort_order   INTEGER NOT NULL DEFAULT 0,
       created_at   TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS accommodations (
+    )`,
+    `CREATE TABLE IF NOT EXISTS accommodations (
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       city         TEXT NOT NULL,
       name         TEXT NOT NULL,
@@ -59,73 +46,86 @@ function initSchema(db: Database.Database) {
       lat          REAL,
       lng          REAL,
       created_at   TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS wishlist_items (
+    )`,
+    `CREATE TABLE IF NOT EXISTS wishlist_items (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       title       TEXT NOT NULL,
       category    TEXT NOT NULL DEFAULT 'sight',
       city        TEXT,
+      location    TEXT,
       description TEXT,
       url         TEXT,
+      activity_date TEXT,
+      time_slot   TEXT,
+      address     TEXT,
+      interested_family1 INTEGER NOT NULL DEFAULT 0,
+      interested_family2 INTEGER NOT NULL DEFAULT 0,
+      interested_family3 INTEGER NOT NULL DEFAULT 0,
+      image_url   TEXT,
+      wiki_url    TEXT,
+      lat         REAL,
+      lng         REAL,
       is_done     INTEGER NOT NULL DEFAULT 0,
       added_by    TEXT,
       created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_items_day_id ON itinerary_items(day_id);
-    CREATE INDEX IF NOT EXISTS idx_wishlist_category ON wishlist_items(category);
-    CREATE INDEX IF NOT EXISTS idx_accommodations_checkin ON accommodations(check_in);
-  `);
-
-  // Migrations: add new columns to existing tables if they don't exist yet
-  const migrations = [
-    "ALTER TABLE itinerary_items ADD COLUMN IF NOT EXISTS family_group TEXT",
-    "ALTER TABLE accommodations ADD COLUMN IF NOT EXISTS family_group TEXT",
-    "ALTER TABLE accommodations ADD COLUMN IF NOT EXISTS lat REAL",
-    "ALTER TABLE accommodations ADD COLUMN IF NOT EXISTS lng REAL",
-    "ALTER TABLE itinerary_days ADD COLUMN IF NOT EXISTS city TEXT",
-    "ALTER TABLE itinerary_days ADD COLUMN IF NOT EXISTS summary TEXT",
-    "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS location TEXT",
-    "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS activity_date TEXT",
-    "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS interested_family1 INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS interested_family2 INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS interested_family3 INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS image_url TEXT",
-    "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS wiki_url TEXT",
-    "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS time_slot TEXT",
-    "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS lat REAL",
-    "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS lng REAL",
-    "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS address TEXT",
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_items_day_id ON itinerary_items(day_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_wishlist_category ON wishlist_items(category)`,
+    `CREATE INDEX IF NOT EXISTS idx_accommodations_checkin ON accommodations(check_in)`,
   ];
+
+  for (const sql of creates) {
+    await client.execute(sql);
+  }
+
+  // Additive migrations — safe to re-run, errors mean column already exists
+  const migrations = [
+    "ALTER TABLE itinerary_items ADD COLUMN family_group TEXT",
+    "ALTER TABLE accommodations ADD COLUMN family_group TEXT",
+    "ALTER TABLE accommodations ADD COLUMN lat REAL",
+    "ALTER TABLE accommodations ADD COLUMN lng REAL",
+    "ALTER TABLE itinerary_days ADD COLUMN city TEXT",
+    "ALTER TABLE itinerary_days ADD COLUMN summary TEXT",
+    "ALTER TABLE wishlist_items ADD COLUMN location TEXT",
+    "ALTER TABLE wishlist_items ADD COLUMN activity_date TEXT",
+    "ALTER TABLE wishlist_items ADD COLUMN interested_family1 INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE wishlist_items ADD COLUMN interested_family2 INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE wishlist_items ADD COLUMN interested_family3 INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE wishlist_items ADD COLUMN image_url TEXT",
+    "ALTER TABLE wishlist_items ADD COLUMN wiki_url TEXT",
+    "ALTER TABLE wishlist_items ADD COLUMN time_slot TEXT",
+    "ALTER TABLE wishlist_items ADD COLUMN lat REAL",
+    "ALTER TABLE wishlist_items ADD COLUMN lng REAL",
+    "ALTER TABLE wishlist_items ADD COLUMN address TEXT",
+  ];
+
   for (const sql of migrations) {
-    try {
-      db.exec(sql);
-    } catch {
-      // Column already exists
-    }
+    try { await client.execute(sql); } catch { /* column already exists */ }
   }
 
-  // Seed the 7 trip days (Jul 31 – Aug 6, 2025) if not already present
-  const count = (
-    db.prepare("SELECT COUNT(*) as c FROM itinerary_days").get() as {
-      c: number;
+  // Seed the 7 trip days if the table is empty
+  const { rows } = await client.execute("SELECT COUNT(*) as c FROM itinerary_days");
+  if ((rows[0].c as number) === 0) {
+    const dates = ["2026-07-31","2026-08-01","2026-08-02","2026-08-03","2026-08-04","2026-08-05","2026-08-06"];
+    for (let i = 0; i < dates.length; i++) {
+      await client.execute({ sql: "INSERT OR IGNORE INTO itinerary_days (trip_date, sort_order) VALUES (?, ?)", args: [dates[i], i] });
     }
-  ).c;
-
-  if (count === 0) {
-    const insertDay = db.prepare(
-      "INSERT OR IGNORE INTO itinerary_days (trip_date, sort_order) VALUES (?, ?)"
-    );
-    const dates = [
-      "2026-07-31",
-      "2026-08-01",
-      "2026-08-02",
-      "2026-08-03",
-      "2026-08-04",
-      "2026-08-05",
-      "2026-08-06",
-    ];
-    dates.forEach((date, i) => insertDay.run(date, i));
   }
+}
+
+export async function dbAll<T>(sql: string, args: InValue[] = []): Promise<T[]> {
+  await ready;
+  const result = await client.execute({ sql, args });
+  return result.rows as unknown as T[];
+}
+
+export async function dbGet<T>(sql: string, args: InValue[] = []): Promise<T | undefined> {
+  await ready;
+  const result = await client.execute({ sql, args });
+  return (result.rows[0] ?? undefined) as T | undefined;
+}
+
+export async function dbRun(sql: string, args: InValue[] = []): Promise<void> {
+  await ready;
+  await client.execute({ sql, args });
 }

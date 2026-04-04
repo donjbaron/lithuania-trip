@@ -1,19 +1,14 @@
 export const dynamic = "force-dynamic";
 
-import { getDb } from "@/lib/db";
+import { dbAll } from "@/lib/db";
 import type { WishlistItem } from "@/lib/types";
 import ActivityList from "@/components/activities/ActivityList";
 import AddActivityForm from "@/components/activities/AddActivityForm";
 
-function getActivities(): WishlistItem[] {
-  const db = getDb();
-  return db
-    .prepare("SELECT * FROM wishlist_items ORDER BY city ASC, created_at ASC")
-    .all() as WishlistItem[];
-}
-
-export default function ActivitiesPage() {
-  const items = getActivities();
+export default async function ActivitiesPage() {
+  const items = await dbAll<WishlistItem>(
+    "SELECT * FROM wishlist_items ORDER BY city ASC, created_at ASC"
+  );
 
   return (
     <div className="space-y-6">
