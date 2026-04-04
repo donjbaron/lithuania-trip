@@ -69,6 +69,21 @@ async function initSchema() {
       added_by    TEXT,
       created_at  TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
+    `CREATE TABLE IF NOT EXISTS restaurants (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      name        TEXT NOT NULL,
+      city        TEXT,
+      meal_type   TEXT,
+      activity_date TEXT,
+      url         TEXT,
+      address     TEXT,
+      notes       TEXT,
+      image_url   TEXT,
+      interested_family1 INTEGER NOT NULL DEFAULT 0,
+      interested_family2 INTEGER NOT NULL DEFAULT 0,
+      interested_family3 INTEGER NOT NULL DEFAULT 0,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
     `CREATE INDEX IF NOT EXISTS idx_items_day_id ON itinerary_items(day_id)`,
     `CREATE INDEX IF NOT EXISTS idx_wishlist_category ON wishlist_items(category)`,
     `CREATE INDEX IF NOT EXISTS idx_accommodations_checkin ON accommodations(check_in)`,

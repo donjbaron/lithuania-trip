@@ -7,6 +7,7 @@ const tabs = [
   { href: "/itinerary", label: "Itinerary" },
   { href: "/accommodations", label: "Hotels" },
   { href: "/activities", label: "Activities" },
+  { href: "/restaurants", label: "Restaurants" },
 ];
 
 export default function TabNav() {

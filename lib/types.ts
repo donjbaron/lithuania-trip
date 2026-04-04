@@ -66,6 +66,22 @@ export interface WishlistItem {
   created_at: string;
 }
 
+export interface Restaurant {
+  id: number;
+  name: string;
+  city: string | null;
+  meal_type: "lunch" | "dinner" | null;
+  activity_date: string | null;
+  url: string | null;
+  address: string | null;
+  notes: string | null;
+  image_url: string | null;
+  interested_family1: number;
+  interested_family2: number;
+  interested_family3: number;
+  created_at: string;
+}
+
 export const FAMILY_MEMBERS = [
   "Don",
   "Tova",
