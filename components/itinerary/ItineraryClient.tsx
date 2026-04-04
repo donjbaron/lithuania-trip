@@ -13,6 +13,7 @@ import {
 } from "@/lib/types";
 import { updateDay } from "@/app/actions/itinerary";
 import { moveActivitiesToDay } from "@/app/actions/activities";
+import { assignRestaurantToDay, unassignRestaurant } from "@/app/actions/restaurants";
 import FamilySection from "./FamilySection";
 import DayItemRow from "./DayItemRow";
 import AddItemForm from "./AddItemForm";
@@ -667,87 +668,104 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
             )}
 
             {/* Restaurant recommendations */}
-            {(() => {
-              const city = selectedDay?.city ?? null;
-              const date = selectedDay?.trip_date ?? null;
-              const saved = restaurants.filter(
-                (r) => (city && r.city === city) || (date && r.activity_date === date)
-              );
-              const lunch = saved.filter((r) => r.meal_type === "lunch" || !r.meal_type);
-              const dinner = saved.filter((r) => r.meal_type === "dinner" || !r.meal_type);
+            {selectedDay && (() => {
+              const city = selectedDay.city ?? null;
+              const date = selectedDay.trip_date;
+              const mapsQuery = encodeURIComponent(`restaurants in ${city ?? "Lithuania"}`);
+              const yelpQuery = encodeURIComponent(`restaurants ${city ?? "Lithuania"}`);
 
-              const mapsQuery = city ? encodeURIComponent(`restaurants in ${city} Lithuania`) : "";
-              const yelpQuery = city ? encodeURIComponent(`restaurants+${city}+Lithuania`) : "";
+              // Candidates: restaurants matching this city or already assigned to this date
+              const candidates = restaurants.filter(
+                (r) => (city && r.city === city) || r.activity_date === date || !r.activity_date
+              );
+
+              const assignedLunch = restaurants.find((r) => r.activity_date === date && r.meal_type === "lunch") ?? null;
+              const assignedDinner = restaurants.find((r) => r.activity_date === date && r.meal_type === "dinner") ?? null;
+
+              // Options for each picker — exclude the other meal's pick
+              const lunchOptions = candidates.filter((r) => r.id !== assignedDinner?.id);
+              const dinnerOptions = candidates.filter((r) => r.id !== assignedLunch?.id);
+
+              function RestaurantCard({ r, meal }: { r: Restaurant; meal: "lunch" | "dinner" }) {
+                return (
+                  <div className="flex items-start gap-3">
+                    {r.image_url && (
+                      <img src={r.image_url} alt={r.name} className="w-10 h-10 rounded-lg object-cover shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-800">{r.name}</p>
+                      {r.address && <p className="text-xs text-gray-400 mt-0.5">{r.address}</p>}
+                      {r.notes && <p className="text-xs text-gray-500 italic mt-0.5">{r.notes}</p>}
+                      <div className="flex gap-3 mt-1">
+                        {r.url && <a href={r.url} target="_blank" rel="noopener noreferrer" className="text-xs text-amber-600 hover:underline">More info →</a>}
+                        {r.lat && r.lng && <a href={`https://www.google.com/maps/search/?api=1&query=${r.lat},${r.lng}`} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Map →</a>}
+                      </div>
+                    </div>
+                    <button onClick={() => unassignRestaurant(r.id)}
+                      className="shrink-0 p-1 text-gray-300 hover:text-red-400 transition-colors" title="Remove">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                );
+              }
+
+              function MealSlot({ meal, label, assigned, options }: {
+                meal: "lunch" | "dinner";
+                label: string;
+                assigned: Restaurant | null;
+                options: Restaurant[];
+              }) {
+                return (
+                  <div className="px-4 py-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                        {meal === "lunch" ? "☀️" : "🌙"} {label}
+                      </span>
+                      {!assigned && options.length > 0 && (
+                        <select
+                          defaultValue=""
+                          onChange={(e) => {
+                            if (e.target.value) assignRestaurantToDay(Number(e.target.value), date, meal);
+                            e.target.value = "";
+                          }}
+                          className="ml-auto text-xs border border-gray-200 rounded-lg px-2 py-1 text-gray-500 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        >
+                          <option value="">Assign a restaurant…</option>
+                          {options.map((r) => (
+                            <option key={r.id} value={r.id}>{r.name}</option>
+                          ))}
+                        </select>
+                      )}
+                      {!assigned && options.length === 0 && (
+                        <a href={`https://www.google.com/maps/search/${mapsQuery}`} target="_blank" rel="noopener noreferrer"
+                          className="ml-auto text-xs text-gray-400 hover:text-amber-600">Find on Maps →</a>
+                      )}
+                    </div>
+                    {assigned
+                      ? <RestaurantCard r={assigned} meal={meal} />
+                      : <p className="text-xs text-gray-400 italic">None assigned</p>
+                    }
+                  </div>
+                );
+              }
 
               return (
                 <div className="bg-white rounded-xl border border-gray-200">
                   <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 rounded-t-xl flex items-center justify-between">
                     <h3 className="font-semibold text-gray-800 text-sm">Restaurants</h3>
-                    <div className="flex items-center gap-2">
-                      {city && (
-                        <>
-                          <a href={`https://www.google.com/maps/search/${mapsQuery}`} target="_blank" rel="noopener noreferrer"
-                            className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
-                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-                            Google Maps
-                          </a>
-                          <a href={`https://www.yelp.com/search?find_desc=restaurants&find_loc=${yelpQuery}`} target="_blank" rel="noopener noreferrer"
-                            className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
-                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg>
-                            Yelp
-                          </a>
-                        </>
-                      )}
+                    <div className="flex gap-3">
+                      <a href={`https://www.google.com/maps/search/${mapsQuery}`} target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-gray-400 hover:text-gray-600">Google Maps</a>
+                      <a href={`https://www.yelp.com/search?find_desc=restaurants&find_loc=${yelpQuery}`} target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-gray-400 hover:text-gray-600">Yelp</a>
                     </div>
                   </div>
-                  {saved.length === 0 ? (
-                    <div className="px-4 py-4 text-sm text-gray-400 italic">
-                      No saved restaurants for {city ?? "this day"}.{" "}
-                      {city && (
-                        <a href={`https://www.google.com/maps/search/${mapsQuery}`} target="_blank" rel="noopener noreferrer"
-                          className="text-amber-600 hover:underline">Find some on Google Maps →</a>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="divide-y divide-gray-100">
-                      {[
-                        { label: "Lunch", emoji: "☀️", rows: lunch },
-                        { label: "Dinner", emoji: "🌙", rows: dinner },
-                      ].map(({ label, emoji, rows }) => rows.length > 0 && (
-                        <div key={label}>
-                          <div className="px-4 py-1.5 bg-gray-50/60 flex items-center gap-1.5">
-                            <span className="text-xs">{emoji}</span>
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">{label}</span>
-                          </div>
-                          {rows.map((r) => (
-                            <div key={r.id} className="px-4 py-2.5 flex items-start gap-3">
-                              {r.image_url && (
-                                <img src={r.image_url} alt={r.name} className="w-10 h-10 rounded-lg object-cover shrink-0" />
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <p className="text-sm font-semibold text-gray-800">{r.name}</p>
-                                  <span className="text-xs px-1.5 py-0.5 rounded bg-green-100 text-green-700 font-medium">Saved</span>
-                                </div>
-                                {r.address && <p className="text-xs text-gray-400 mt-0.5">{r.address}</p>}
-                                {r.notes && <p className="text-xs text-gray-500 italic mt-0.5">{r.notes}</p>}
-                                <div className="flex gap-3 mt-1">
-                                  {r.url && (
-                                    <a href={r.url} target="_blank" rel="noopener noreferrer"
-                                      className="text-xs text-amber-600 hover:underline">More info →</a>
-                                  )}
-                                  {(r.lat && r.lng) && (
-                                    <a href={`https://www.google.com/maps/search/?api=1&query=${r.lat},${r.lng}`} target="_blank" rel="noopener noreferrer"
-                                      className="text-xs text-blue-500 hover:underline">Map →</a>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <div className="divide-y divide-gray-100">
+                    <MealSlot meal="lunch" label="Lunch" assigned={assignedLunch} options={lunchOptions} />
+                    <MealSlot meal="dinner" label="Dinner" assigned={assignedDinner} options={dinnerOptions} />
+                  </div>
                 </div>
               );
             })()}

@@ -104,3 +104,19 @@ export async function deleteRestaurant(id: number) {
   await dbRun("DELETE FROM restaurants WHERE id = ?", [id]);
   revalidate();
 }
+
+export async function assignRestaurantToDay(id: number, date: string, mealType: "lunch" | "dinner") {
+  await dbRun(
+    "UPDATE restaurants SET activity_date = ?, meal_type = ? WHERE id = ?",
+    [date, mealType, id]
+  );
+  revalidate();
+}
+
+export async function unassignRestaurant(id: number) {
+  await dbRun(
+    "UPDATE restaurants SET activity_date = NULL WHERE id = ?",
+    [id]
+  );
+  revalidate();
+}
