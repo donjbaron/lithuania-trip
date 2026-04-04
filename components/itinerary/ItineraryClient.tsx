@@ -311,9 +311,17 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (places: any[], status: string) => {
           if (status === g.maps.places.PlacesServiceStatus.OK && places?.length) {
+            const FOOD_TYPES = new Set(["restaurant","food","meal_delivery","meal_takeaway","bakery","cafe","bar","night_club"]);
+            const EXCLUDE_TYPES = new Set(["lodging","hotel","real_estate_agency","store","shopping_mall","gas_station","pharmacy","hospital","bank","church","museum","park","transit_station"]);
+            const foodPlaces = (places as any[]).filter((p) => {
+              const types: string[] = p.types ?? [];
+              const hasFood = types.some((t) => FOOD_TYPES.has(t));
+              const isExcluded = types.some((t) => EXCLUDE_TYPES.has(t));
+              return hasFood && !isExcluded;
+            });
             setRestaurantSuggestions({
               meal,
-              results: places.slice(0, 5).map((p: any) => {
+              results: foodPlaces.slice(0, 5).map((p: any) => {
                 // Derive cuisine from place types, skipping generic tags
                 const skipTypes = new Set(["restaurant","food","point_of_interest","establishment","bar","cafe"]);
                 const cuisineType = (p.types as string[] ?? []).find((t) => !skipTypes.has(t));
