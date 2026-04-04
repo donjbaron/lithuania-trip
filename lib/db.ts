@@ -96,6 +96,7 @@ function initSchema(db: Database.Database) {
     "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS time_slot TEXT",
     "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS lat REAL",
     "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS lng REAL",
+    "ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS address TEXT",
   ];
   for (const sql of migrations) {
     try {

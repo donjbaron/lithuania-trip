@@ -81,6 +81,16 @@ export default function AddActivityForm() {
           />
         </div>
 
+        <div className="sm:col-span-2">
+          <label className="block text-xs font-medium text-gray-500 mb-1">Address <span className="text-gray-300">(optional)</span></label>
+          <input
+            type="text"
+            name="address"
+            placeholder="Street address or landmark"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+          />
+        </div>
+
       </div>
 
       <button

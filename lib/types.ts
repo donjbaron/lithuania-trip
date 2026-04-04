@@ -58,6 +58,7 @@ export interface WishlistItem {
   interested_family3: number;
   image_url: string | null;
   wiki_url: string | null;
+  address: string | null;
   lat: number | null;
   lng: number | null;
   is_done: number;

@@ -78,6 +78,30 @@ function geoDistance(a: WishlistItem, b: WishlistItem) {
   return Math.sqrt(dlat * dlat + dlng * dlng);
 }
 
+// Split a nearest-neighbor-sorted list into two geographic clusters by
+// finding the largest distance jump between consecutive items.
+function clusterByGap(sorted: WishlistItem[]): [WishlistItem[], WishlistItem[]] {
+  const n = sorted.length;
+  if (n <= 1) return [sorted, []];
+
+  let bestSplit = Math.ceil(n / 2);
+  let bestGap = -Infinity;
+
+  for (let i = 1; i < n; i++) {
+    // Only consider gaps where both items have coordinates
+    if (sorted[i - 1].lat != null && sorted[i].lat != null) {
+      const gap = geoDistance(sorted[i - 1], sorted[i]);
+      if (gap > bestGap) {
+        bestGap = gap;
+        bestSplit = i;
+      }
+    }
+  }
+
+  // Re-sort each cluster independently for optimal within-group ordering
+  return [nearestNeighborSort(sorted.slice(0, bestSplit)), nearestNeighborSort(sorted.slice(bestSplit))];
+}
+
 function nearestNeighborSort(items: WishlistItem[]): WishlistItem[] {
   if (items.length <= 1) return items;
   const remaining = [...items];
@@ -143,9 +167,12 @@ function buildDayItinerary(
       : 16 * 60;
     sortedFlexible.forEach((a, i) => timed.push({ activity: a, mins: lastArrivalMins + 90 + i * 75 }));
   } else {
-    const half = Math.ceil(sortedFlexible.length / 2);
-    sortedFlexible.slice(0, half).forEach((a, i) => timed.push({ activity: a, mins: 10 * 60 + i * 90 }));
-    sortedFlexible.slice(half).forEach((a, i) => timed.push({ activity: a, mins: 14 * 60 + 30 + i * 90 }));
+    // Split into two geographic clusters: find the biggest distance gap
+    // in the nearest-neighbor path and break there so nearby activities
+    // stay in the same morning/afternoon block.
+    const [morningGroup, afternoonGroup] = clusterByGap(sortedFlexible);
+    morningGroup.forEach((a, i) => timed.push({ activity: a, mins: 10 * 60 + i * 90 }));
+    afternoonGroup.forEach((a, i) => timed.push({ activity: a, mins: 14 * 60 + 30 + i * 90 }));
   }
   timed.sort((a, b) => a.mins - b.mins);
 

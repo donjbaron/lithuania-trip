@@ -118,6 +118,7 @@ function ActivityRow({ item }: { item: WishlistItem }) {
           </select>
           <input type="time" name="time_slot" defaultValue={item.time_slot ?? ""} className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white" />
           <input type="url" name="url" defaultValue={item.url ?? ""} placeholder="URL" className="sm:col-span-2 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+          <input type="text" name="address" defaultValue={item.address ?? ""} placeholder="Address (optional)" className="sm:col-span-2 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
         </div>
         <div className="flex gap-2">
           <button type="submit" className="px-3 py-1 bg-amber-500 text-white rounded-lg text-xs font-medium hover:bg-amber-600">Save</button>

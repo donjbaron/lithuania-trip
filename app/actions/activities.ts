@@ -43,8 +43,8 @@ export async function addActivity(formData: FormData) {
   db.prepare(
     `INSERT INTO wishlist_items
        (title, location, url, city, activity_date, time_slot,
-        interested_family1, interested_family2, interested_family3, image_url)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        interested_family1, interested_family2, interested_family3, image_url, address)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     name,
     (formData.get("location") as string) || null,
@@ -55,7 +55,8 @@ export async function addActivity(formData: FormData) {
     formData.get("interested_family1") === "on" ? 1 : 0,
     formData.get("interested_family2") === "on" ? 1 : 0,
     formData.get("interested_family3") === "on" ? 1 : 0,
-    imageUrl
+    imageUrl,
+    (formData.get("address") as string) || null,
   );
   revalidate();
 }
@@ -102,7 +103,7 @@ export async function updateActivity(id: number, formData: FormData) {
 
   db.prepare(
     `UPDATE wishlist_items
-     SET title=?, location=?, url=?, city=?, activity_date=?, time_slot=?, image_url=?, wiki_url=?
+     SET title=?, location=?, url=?, city=?, activity_date=?, time_slot=?, image_url=?, wiki_url=?, address=?
      WHERE id=?`
   ).run(
     name,
@@ -113,6 +114,7 @@ export async function updateActivity(id: number, formData: FormData) {
     (formData.get("time_slot") as string) || null,
     imageUrl,
     wikiUrl,
+    (formData.get("address") as string) || null,
     id
   );
   revalidate();
