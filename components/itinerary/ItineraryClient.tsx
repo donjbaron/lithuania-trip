@@ -175,9 +175,13 @@ export default function ItineraryClient({ days, items, hotels, activities }: Pro
     });
 
     if (isArrivalDay) {
-      // Arrival day: no morning, everyone gets in and rests first.
-      // Start activities at 4:00 PM with 75-min spacing.
-      sortedFlexible.forEach((a, i) => timed.push({ activity: a, mins: 16 * 60 + i * 75 }));
+      // Arrival day: find the latest arrival time from fixed activities, then add buffer.
+      // Don't schedule flexible activities until everyone is settled.
+      const lastArrivalMins = fixed.length > 0
+        ? Math.max(...fixed.map((a) => { const [h, m] = a.time_slot!.split(":").map(Number); return h * 60 + m; }))
+        : 16 * 60; // fallback to 4 PM if no arrival times set
+      const startMins = lastArrivalMins + 90; // 90-min buffer to check in and settle
+      sortedFlexible.forEach((a, i) => timed.push({ activity: a, mins: startMins + i * 75 }));
     } else {
       // Normal day: split morning / afternoon
       const half = Math.ceil(sortedFlexible.length / 2);
@@ -194,10 +198,7 @@ export default function ItineraryClient({ days, items, hotels, activities }: Pro
     const slots: ItinerarySlot[] = [];
     const sunsetTime = SUNSET[selectedDay?.trip_date ?? ""] ?? null;
 
-    if (isArrivalDay) {
-      slots.push({ type: "meal", label: "Arrive & check in", time: "Afternoon" });
-      slots.push({ type: "meal", label: "Settle in / rest", time: "3:00 PM" });
-    } else {
+    if (!isArrivalDay) {
       slots.push({ type: "meal", label: "Breakfast", time: "9:00 AM" });
     }
 
