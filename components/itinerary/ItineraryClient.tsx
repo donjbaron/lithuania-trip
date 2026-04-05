@@ -1082,9 +1082,8 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                                 )}
                                 <div className="flex-1 min-w-0 pointer-events-none">
                                   <p className={`text-sm font-semibold hover:underline ${isSkipped ? "line-through text-gray-400" : "text-gray-800"}`}>{activity.title}</p>
-                                  {activity.lat == null
-                                    ? <p className="text-xs text-amber-500 mt-0.5">Address missing — not included in route</p>
-                                    : activity.address && <p className="text-xs text-gray-400 truncate mt-0.5">{activity.address}</p>}
+                                  {activity.address && <p className="text-xs text-gray-400 truncate mt-0.5">{activity.address}</p>}
+                                  {activity.lat == null && <p className="text-xs text-amber-500 mt-0.5">{activity.address ? "No coordinates — not included in route" : "Address missing — not included in route"}</p>}
                                 </div>
                               </button>
                               <div className="flex flex-col items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
@@ -1188,9 +1187,8 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                               )}
                               <div className="flex-1 min-w-0 pointer-events-none">
                                 <p className={`text-sm font-semibold hover:underline ${isSkipped ? "line-through text-gray-400" : isPinned ? "text-amber-900" : "text-gray-800"}`}>{a.title}</p>
-                                {a.lat == null
-                                  ? <p className="text-xs text-amber-500 mt-0.5">Address missing — not included in route</p>
-                                  : a.address && <p className="text-xs text-gray-400 truncate mt-0.5">{a.address}</p>}
+                                {a.address && <p className="text-xs text-gray-400 truncate mt-0.5">{a.address}</p>}
+                                {a.lat == null && <p className="text-xs text-amber-500 mt-0.5">{a.address ? "No coordinates — not included in route" : "Address missing — not included in route"}</p>}
                               </div>
                             </button>
                             <div className="flex flex-col items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>

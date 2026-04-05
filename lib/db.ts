@@ -1,14 +1,29 @@
-import { createClient, type InValue } from "@libsql/client";
+import { createClient, type InValue, type Client } from "@libsql/client";
 
-const client = createClient({
-  url: process.env.TURSO_DATABASE_URL!,
-  authToken: process.env.TURSO_AUTH_TOKEN,
-});
+// Lazily initialized — createClient is deferred until the first DB call so
+// that TURSO_DATABASE_URL is not required at build time (Vercel build phase
+// does not inject runtime env vars).
+let _client: Client | null = null;
+let _ready: Promise<void> | null = null;
 
-// Run once per module instance (cold start). All DB helpers await this.
-const ready = initSchema();
+function getClient(): Client {
+  if (!_client) {
+    _client = createClient({
+      url: process.env.TURSO_DATABASE_URL!,
+      authToken: process.env.TURSO_AUTH_TOKEN,
+    });
+    _ready = initSchema(_client);
+  }
+  return _client;
+}
 
-async function initSchema() {
+async function ensureReady(): Promise<Client> {
+  const c = getClient();
+  await _ready;
+  return c;
+}
+
+async function initSchema(client: Client) {
   // Create tables
   const creates = [
     `CREATE TABLE IF NOT EXISTS itinerary_days (
@@ -152,19 +167,19 @@ async function initSchema() {
 }
 
 export async function dbAll<T>(sql: string, args: InValue[] = []): Promise<T[]> {
-  await ready;
+  const client = await ensureReady();
   const result = await client.execute({ sql, args });
   return result.rows.map((row) => ({ ...row })) as unknown as T[];
 }
 
 export async function dbGet<T>(sql: string, args: InValue[] = []): Promise<T | undefined> {
-  await ready;
+  const client = await ensureReady();
   const result = await client.execute({ sql, args });
   const row = result.rows[0];
   return row ? ({ ...row } as unknown as T) : undefined;
 }
 
 export async function dbRun(sql: string, args: InValue[] = []): Promise<void> {
-  await ready;
+  const client = await ensureReady();
   await client.execute({ sql, args });
 }
