@@ -421,8 +421,10 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
   }
   function slotsToStops(slots: ItinerarySlot[]) {
     return slots.flatMap(s => {
-      if (s.type === "activity") return [{ lat: s.activity.lat, lng: s.activity.lng }];
-      if (s.type === "meal" && s.restaurant) return [{ lat: s.restaurant.lat, lng: s.restaurant.lng }];
+      if (s.type === "activity" && s.activity.lat != null && s.activity.lng != null)
+        return [{ lat: s.activity.lat, lng: s.activity.lng }];
+      if (s.type === "meal" && s.restaurant?.lat != null && s.restaurant.lng != null)
+        return [{ lat: s.restaurant.lat, lng: s.restaurant.lng }];
       return [];
     });
   }
@@ -966,7 +968,9 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                                 )}
                                 <div className="flex-1 min-w-0 pointer-events-none">
                                   <p className={`text-sm font-semibold hover:underline ${isSkipped ? "line-through text-gray-400" : "text-gray-800"}`}>{activity.title}</p>
-                                  {activity.address && <p className="text-xs text-gray-400 truncate mt-0.5">{activity.address}</p>}
+                                  {activity.lat == null
+                                    ? <p className="text-xs text-amber-500 mt-0.5">Address missing — not included in route</p>
+                                    : activity.address && <p className="text-xs text-gray-400 truncate mt-0.5">{activity.address}</p>}
                                 </div>
                               </button>
                               {interested.length > 0 && (
@@ -1056,7 +1060,9 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                               )}
                               <div className="flex-1 min-w-0 pointer-events-none">
                                 <p className={`text-sm font-semibold hover:underline ${isSkipped ? "line-through text-gray-400" : isPinned ? "text-amber-900" : "text-gray-800"}`}>{a.title}</p>
-                                {a.address && <p className="text-xs text-gray-400 truncate mt-0.5">{a.address}</p>}
+                                {a.lat == null
+                                  ? <p className="text-xs text-amber-500 mt-0.5">Address missing — not included in route</p>
+                                  : a.address && <p className="text-xs text-gray-400 truncate mt-0.5">{a.address}</p>}
                               </div>
                             </button>
                             {interested.length > 0 && (
