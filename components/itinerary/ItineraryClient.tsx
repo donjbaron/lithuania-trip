@@ -674,8 +674,15 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
         if (c) endCoords = CITY_COORDS[c];
       }
     }
-    // Fall back: use day city as start if no transit marker
-    if (!startCoords && city && CITY_COORDS[city]) startCoords = CITY_COORDS[city];
+    // Use breakfast restaurant location as start anchor (that's where the day literally begins)
+    const assignedBreakfast = restaurants.find(r => r.meal_type === "breakfast" && r.city === city) ?? null;
+    if (!startCoords) {
+      if (assignedBreakfast?.lat != null && assignedBreakfast.lng != null) {
+        startCoords = [assignedBreakfast.lat, assignedBreakfast.lng];
+      } else if (city && CITY_COORDS[city]) {
+        startCoords = CITY_COORDS[city];
+      }
+    }
 
     // 4. Build N×N distance matrix and find optimal route order
     let orderedActivities = routable;
@@ -709,7 +716,6 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     setBacktrackWarning(detectBacktracking(orderedActivities));
 
     // 5. Assign meals
-    const assignedBreakfast = restaurants.find(r => r.meal_type === "breakfast" && r.city === city) ?? null;
     const assignedLunch = restaurants.find(r => r.activity_date === date && r.meal_type === "lunch") ?? null;
     const assignedDinner = restaurants.find(r => r.activity_date === date && r.meal_type === "dinner") ?? null;
     const sunsetTime = SUNSET[date] ?? null;
