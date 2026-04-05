@@ -243,8 +243,8 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
   const [restaurantSearching, setRestaurantSearching] = useState<"lunch" | "dinner" | null>(null);
   const [restaurantSuggestions, setRestaurantSuggestions] = useState<{ meal: "lunch" | "dinner"; results: PlaceResult[] } | null>(null);
   const [detailActivity, setDetailActivity] = useState<WishlistItem | null>(null);
-  const [slotDragId, setSlotDragId] = useState<number | null>(null);
-  const [slotInsertBefore, setSlotInsertBefore] = useState<number | "end" | null>(null);
+  const [slotDragKey, setSlotDragKey] = useState<string | null>(null);
+  const [slotInsertBefore, setSlotInsertBefore] = useState<string | "end" | null>(null);
   const [normalDragId, setNormalDragId] = useState<number | null>(null);
   const [normalInsertBefore, setNormalInsertBefore] = useState<number | "end" | null>(null);
   const [localActivityOrder, setLocalActivityOrder] = useState<number[] | null>(null);
@@ -363,6 +363,41 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     } catch {
       setRestaurantSearching(null);
     }
+  }
+
+  function slotKey(s: ItinerarySlot) {
+    return s.type === "activity" ? `a-${s.activity.id}` : `m-${s.label}`;
+  }
+  function isDraggableSlot(s: ItinerarySlot) {
+    return s.type === "activity" || (s.type === "meal" && s.restaurant != null);
+  }
+  function slotsToStops(slots: ItinerarySlot[]) {
+    return slots.flatMap(s => {
+      if (s.type === "activity") return [{ lat: s.activity.lat, lng: s.activity.lng }];
+      if (s.type === "meal" && s.restaurant) return [{ lat: s.restaurant.lat, lng: s.restaurant.lng }];
+      return [];
+    });
+  }
+  function applySlotDrop(dragKey: string, targetKey: string | "end") {
+    const slots = itinerarySlots;
+    const dragIdx = slots.findIndex(s => slotKey(s) === dragKey);
+    if (dragIdx < 0) return;
+    const next = [...slots];
+    const [moved] = next.splice(dragIdx, 1);
+    if (targetKey === "end") {
+      next.push(moved);
+    } else {
+      const targetIdx = next.findIndex(s => slotKey(s) === targetKey);
+      next.splice(targetIdx < 0 ? next.length : targetIdx, 0, moved);
+    }
+    setItinerarySlots(next);
+    setSlotDragKey(null);
+    setSlotInsertBefore(null);
+    const actOrder = next.filter(s => s.type === "activity").map(s => (s as Extract<ItinerarySlot, {type:"activity"}>).activity.id);
+    setRouteIds(actOrder);
+    calcLegs(slotsToStops(next)).catch(() => {});
+    const excessIds = activitiesForDay.filter(a => !actOrder.includes(a.id)).map(a => a.id);
+    reorderActivities([...actOrder, ...excessIds]);
   }
 
   async function calcLegs(stops: { lat: number | null; lng: number | null }[]) {
@@ -763,34 +798,86 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                   /* ── Suggested itinerary view ── */
                   <div className="divide-y divide-gray-100">
                     {(() => {
-                      let actIdx = 0;
-                      return itinerarySlots.map((slot, i) => {
-                      if (slot.type === "meal") {
-                        const isSunset = slot.label === "Sunset";
-                        const rest = slot.restaurant ?? null;
-                        const isRestaurantStop = rest != null;
-                        if (isRestaurantStop) {
-                          const stopIdx2 = actIdx++;
-                          const leg2 = stopIdx2 > 0 ? (travelLegs[stopIdx2 - 1] ?? null) : null;
+                      let stopIdx = 0;
+                      const dragHandle = (
+                        <svg className="w-4 h-4 text-gray-300 shrink-0 pointer-events-none" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M8 6a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 14a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 22a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4z"/>
+                        </svg>
+                      );
+                      function TravelLeg({ leg }: { leg: { duration: string; mode: "walk" | "drive" } }) {
+                        return (
+                          <div className="px-4 py-1 flex items-center gap-2 bg-white border-b border-gray-100">
+                            <span className="w-16 shrink-0" />
+                            <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                              {leg.mode === "walk"
+                                ? <svg className="w-3.5 h-3.5 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M13.5 5.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7z"/></svg>
+                                : <svg className="w-3.5 h-3.5 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/></svg>
+                              }
+                              <span>{leg.duration} {leg.mode}</span>
+                            </div>
+                          </div>
+                        );
+                      }
+                      function dragProps(key: string) {
+                        return {
+                          draggable: true as const,
+                          onDragStart(e: React.DragEvent) {
+                            e.dataTransfer.setData("text/plain", key);
+                            e.dataTransfer.effectAllowed = "move";
+                            setTimeout(() => setSlotDragKey(key), 0);
+                          },
+                          onDragEnd() { setSlotDragKey(null); setSlotInsertBefore(null); },
+                          onDragOver(e: React.DragEvent) {
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = "move";
+                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            setSlotInsertBefore(e.clientY < rect.top + rect.height / 2 ? key : "end");
+                          },
+                          onDrop(e: React.DragEvent) {
+                            e.preventDefault();
+                            const dragKey = e.dataTransfer.getData("text/plain");
+                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            const targetKey = e.clientY < rect.top + rect.height / 2 ? key : "end";
+                            applySlotDrop(dragKey, targetKey);
+                          },
+                        };
+                      }
+                      return itinerarySlots.map((slot) => {
+                        const key = slotKey(slot);
+                        const draggable = isDraggableSlot(slot);
+                        const isDragging = slotDragKey === key;
+                        const showInsert = slotInsertBefore === key && slotDragKey !== key;
+
+                        if (slot.type === "meal" && !slot.restaurant) {
+                          const isSunset = slot.label === "Sunset";
                           return (
-                            <div key={`meal-${slot.label}`}>
-                              {leg2 && (
-                                <div className="px-4 py-1 flex items-center gap-2 bg-white border-b border-gray-100">
-                                  <span className="w-16 shrink-0" />
-                                  <div className="flex items-center gap-1.5 text-xs text-gray-400">
-                                    {leg2.mode === "walk"
-                                      ? <svg className="w-3.5 h-3.5 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M13.5 5.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7z"/></svg>
-                                      : <svg className="w-3.5 h-3.5 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/></svg>
-                                    }
-                                    <span>{leg2.duration} {leg2.mode}</span>
-                                  </div>
-                                </div>
-                              )}
-                              <div className="px-4 py-3 flex items-center gap-3 bg-indigo-50/40 border-b border-gray-100">
-                                <span className="text-xs font-bold text-indigo-500 w-16 shrink-0">{slot.time}</span>
-                                <span className="text-xs font-semibold uppercase tracking-wide text-indigo-400 shrink-0">{slot.label}</span>
-                                {rest.image_url && <img src={rest.image_url} alt={rest.name} className="w-9 h-9 rounded-lg object-cover shrink-0" />}
-                                <div className="min-w-0 flex-1">
+                            <div key={key} className={`px-4 py-2 flex items-center gap-3 ${isSunset ? "bg-orange-50" : "bg-gray-50"}`}>
+                              <span className={`text-xs font-bold w-16 shrink-0 ${isSunset ? "text-orange-400" : "text-gray-400"}`}>{slot.time}</span>
+                              <span className={`text-xs font-semibold uppercase tracking-wide ${isSunset ? "text-orange-500" : "text-gray-500"}`}>
+                                {isSunset ? "Sunset" : slot.label}
+                              </span>
+                            </div>
+                          );
+                        }
+
+                        const thisStop = stopIdx++;
+                        const leg = thisStop > 0 ? (travelLegs[thisStop - 1] ?? null) : null;
+
+                        if (slot.type === "meal" && slot.restaurant) {
+                          const rest = slot.restaurant;
+                          return (
+                            <div key={key}>
+                              {leg && <TravelLeg leg={leg} />}
+                              {showInsert && <div className="h-0.5 bg-blue-500 mx-4" />}
+                              <div
+                                {...dragProps(key)}
+                                className={`px-4 py-3 flex items-center gap-3 select-none cursor-grab active:cursor-grabbing transition-opacity bg-indigo-50/40 ${isDragging ? "opacity-40" : ""}`}
+                              >
+                                <span className="text-xs font-bold text-indigo-500 w-16 shrink-0 pointer-events-none">{slot.time}</span>
+                                {dragHandle}
+                                <span className="text-xs font-semibold uppercase tracking-wide text-indigo-400 shrink-0 pointer-events-none">{slot.label}</span>
+                                {rest.image_url && <img src={rest.image_url} alt={rest.name} draggable={false} className="w-9 h-9 rounded-lg object-cover shrink-0 pointer-events-none" />}
+                                <div className="min-w-0 flex-1 pointer-events-none">
                                   <p className="text-sm font-semibold text-gray-800 truncate">{rest.name}</p>
                                   {rest.cuisine && <p className="text-xs text-indigo-600">{rest.cuisine}</p>}
                                   {rest.address && <p className="text-xs text-gray-400 truncate">{rest.address}</p>}
@@ -799,137 +886,56 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                             </div>
                           );
                         }
+
+                        // activity slot
+                        const { activity, time } = slot as Extract<ItinerarySlot, { type: "activity" }>;
+                        const interested = FAMILIES.filter((f) => activity[FAMILY_INTEREST[f.key]] as number);
+                        const isSkipped = skippedActivityIds.has(activity.id);
                         return (
-                          <div key={`meal-${slot.label}`} className={`px-4 py-2 flex items-center gap-3 ${isSunset ? "bg-orange-50" : "bg-gray-50"}`}>
-                            <span className={`text-xs font-bold w-16 shrink-0 ${isSunset ? "text-orange-400" : "text-gray-400"}`}>{slot.time}</span>
-                            <span className={`text-xs font-semibold uppercase tracking-wide ${isSunset ? "text-orange-500" : "text-gray-500"}`}>
-                              {isSunset ? "Sunset" : slot.label}
-                            </span>
-                          </div>
-                        );
-                      }
-                      const thisActIdx = actIdx++;
-                      const leg = thisActIdx > 0 ? (travelLegs[thisActIdx - 1] ?? null) : null;
-                      const { activity, time } = slot;
-                      const interested = FAMILIES.filter((f) => activity[FAMILY_INTEREST[f.key]] as number);
-                      const isDragging = slotDragId === activity.id;
-                      const isSkipped = skippedActivityIds.has(activity.id);
-                      const showInsert = slotInsertBefore === activity.id && slotDragId !== activity.id;
-                      return (
-                        <div key={activity.id}>
-                          {leg && (
-                            <div className="px-4 py-1 flex items-center gap-2 bg-white border-b border-gray-100">
-                              <span className="w-16 shrink-0" />
-                              <div className="flex items-center gap-1.5 text-xs text-gray-400">
-                                {leg.mode === "walk"
-                                  ? <svg className="w-3.5 h-3.5 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M13.5 5.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7z"/></svg>
-                                  : <svg className="w-3.5 h-3.5 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/></svg>
-                                }
-                                <span>{leg.duration} {leg.mode}</span>
-                              </div>
-                            </div>
-                          )}
-                          {showInsert && <div className="h-0.5 bg-blue-500 mx-4" />}
-                          <div
-                            draggable
-                            onDragStart={(e) => {
-                              e.dataTransfer.setData("text/plain", String(activity.id));
-                              e.dataTransfer.effectAllowed = "move";
-                              setTimeout(() => setSlotDragId(activity.id), 0);
-                            }}
-                            onDragEnd={() => { setSlotDragId(null); setSlotInsertBefore(null); }}
-                            onDragOver={(e) => {
-                              e.preventDefault();
-                              e.dataTransfer.dropEffect = "move";
-                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                              const mid = rect.top + rect.height / 2;
-                              setSlotInsertBefore(e.clientY < mid ? activity.id : "end");
-                            }}
-                            onDrop={(e) => {
-                              e.preventDefault();
-                              const draggedId = Number(e.dataTransfer.getData("text/plain"));
-                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                              const mid = rect.top + rect.height / 2;
-                              const before = e.clientY < mid ? activity.id : null;
-
-                              const actSlots = itinerarySlots.filter(s => s.type === "activity") as Extract<typeof itinerarySlots[number], { type: "activity" }>[];
-                              const ordered = actSlots.map(s => s.activity.id).filter(id => id !== draggedId);
-                              const targetIdx = before != null ? ordered.indexOf(before) : ordered.length;
-                              const newIds = [...ordered.slice(0, targetIdx), draggedId, ...ordered.slice(targetIdx)];
-
-                              // Rebuild slots: keep meal rows, reassign activities to same positions
-                              let ai = 0;
-                              const newSlots = itinerarySlots.map(s => {
-                                if (s.type !== "activity") return s;
-                                const a = activitiesForDay.find(x => x.id === newIds[ai++])!;
-                                return { ...s, activity: a };
-                              });
-                              setItinerarySlots(newSlots);
-                              setRouteIds(newIds);
-                              setSlotDragId(null);
-                              setSlotInsertBefore(null);
-
-                              const newStops = newSlots.flatMap((s: ItinerarySlot) => {
-                                if (s.type === "activity") return [{ lat: s.activity.lat, lng: s.activity.lng }];
-                                if (s.type === "meal" && (s as Extract<ItinerarySlot, {type:"meal"}>).restaurant) {
-                                  const r = (s as Extract<ItinerarySlot, {type:"meal"}>).restaurant!;
-                                  return [{ lat: r.lat, lng: r.lng }];
-                                }
-                                return [];
-                              });
-                              calcLegs(newStops).catch(() => {});
-
-                              const excessIds = activitiesForDay.filter(a => !newIds.includes(a.id)).map(a => a.id);
-                              reorderActivities([...newIds, ...excessIds]);
-                            }}
-                            className={`px-4 py-3 flex items-center gap-3 select-none cursor-grab active:cursor-grabbing transition-opacity ${isDragging ? "opacity-40" : isSkipped ? "opacity-40 bg-gray-50" : "bg-amber-50/40"}`}
-                          >
-                            <span className="text-xs font-bold text-amber-600 w-16 shrink-0 pointer-events-none">{time}</span>
-                            {/* drag handle */}
-                            <svg className="w-4 h-4 text-gray-300 shrink-0 pointer-events-none" fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M8 6a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 14a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 22a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4z"/>
-                            </svg>
-                            {/* Skip checkbox */}
-                            <button
-                              draggable={false}
-                              type="button"
-                              title={isSkipped ? "Include" : "Skip"}
-                              onClick={() => setSkippedActivityIds(prev => { const n = new Set(prev); isSkipped ? n.delete(activity.id) : n.add(activity.id); return n; })}
-                              className={`shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${isSkipped ? "border-gray-300 hover:border-gray-500" : "bg-amber-500 border-amber-500 hover:bg-amber-600"}`}
+                          <div key={key}>
+                            {leg && <TravelLeg leg={leg} />}
+                            {showInsert && <div className="h-0.5 bg-blue-500 mx-4" />}
+                            <div
+                              {...(draggable ? dragProps(key) : {})}
+                              className={`px-4 py-3 flex items-center gap-3 select-none cursor-grab active:cursor-grabbing transition-opacity ${isDragging ? "opacity-40" : isSkipped ? "opacity-40 bg-gray-50" : "bg-amber-50/40"}`}
                             >
-                              {!isSkipped && <svg className="w-3 h-3 text-white pointer-events-none" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 12 12"><path strokeLinecap="round" strokeLinejoin="round" d="M2 6l3 3 5-5"/></svg>}
-                            </button>
-                            <button
-                              draggable={false}
-                              type="button"
-                              onClick={() => setDetailActivity(activity)}
-                              className="flex items-center gap-3 flex-1 min-w-0 text-left"
-                            >
-                              {activity.image_url && (
-                                <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 pointer-events-none">
-                                  <img src={activity.image_url} alt="" draggable={false} className="w-full h-full object-cover" />
+                              <span className="text-xs font-bold text-amber-600 w-16 shrink-0 pointer-events-none">{time}</span>
+                              {dragHandle}
+                              <button
+                                draggable={false}
+                                type="button"
+                                title={isSkipped ? "Include" : "Skip"}
+                                onClick={() => setSkippedActivityIds(prev => { const n = new Set(prev); isSkipped ? n.delete(activity.id) : n.add(activity.id); return n; })}
+                                className={`shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${isSkipped ? "border-gray-300 hover:border-gray-500" : "bg-amber-500 border-amber-500 hover:bg-amber-600"}`}
+                              >
+                                {!isSkipped && <svg className="w-3 h-3 text-white pointer-events-none" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 12 12"><path strokeLinecap="round" strokeLinejoin="round" d="M2 6l3 3 5-5"/></svg>}
+                              </button>
+                              <button draggable={false} type="button" onClick={() => setDetailActivity(activity)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
+                                {activity.image_url && (
+                                  <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 pointer-events-none">
+                                    <img src={activity.image_url} alt="" draggable={false} className="w-full h-full object-cover" />
+                                  </div>
+                                )}
+                                <div className="flex-1 min-w-0 pointer-events-none">
+                                  <p className={`text-sm font-semibold hover:underline ${isSkipped ? "line-through text-gray-400" : "text-gray-800"}`}>{activity.title}</p>
+                                  {activity.address && <p className="text-xs text-gray-400 truncate mt-0.5">{activity.address}</p>}
+                                </div>
+                              </button>
+                              {interested.length > 0 && (
+                                <div className="flex items-center gap-1 shrink-0 pointer-events-none">
+                                  {interested.map((f) => (
+                                    <div key={f.key} className="w-5 h-5 rounded-full overflow-hidden border border-white shadow-sm">
+                                      <img src={`/families/${f.key}.png`} alt={f.label} draggable={false} className="w-full h-full object-cover" />
+                                    </div>
+                                  ))}
                                 </div>
                               )}
-                              <div className="flex-1 min-w-0 pointer-events-none">
-                                <p className={`text-sm font-semibold hover:underline ${isSkipped ? "line-through text-gray-400" : "text-gray-800"}`}>{activity.title}</p>
-                                {activity.address && <p className="text-xs text-gray-400 truncate mt-0.5">{activity.address}</p>}
-                              </div>
-                            </button>
-                            {interested.length > 0 && (
-                              <div className="flex items-center gap-1 shrink-0 pointer-events-none">
-                                {interested.map((f) => (
-                                  <div key={f.key} className="w-5 h-5 rounded-full overflow-hidden border border-white shadow-sm">
-                                    <img src={`/families/${f.key}.png`} alt={f.label} draggable={false} className="w-full h-full object-cover" />
-                                  </div>
-                                ))}
-                              </div>
-                            )}
+                            </div>
                           </div>
-                        </div>
-                      );
-                    });
+                        );
+                      });
                     })()}
-                    {slotInsertBefore === "end" && slotDragId !== null && <div className="h-0.5 bg-blue-500 mx-4" />}
+                    {slotInsertBefore === "end" && slotDragKey !== null && <div className="h-0.5 bg-blue-500 mx-4" />}
                   </div>
                 ) : (
                   /* ── Normal activity list (draggable) ── */
