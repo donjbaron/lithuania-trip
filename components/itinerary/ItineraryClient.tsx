@@ -739,9 +739,9 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                               type="button"
                               title={isSkipped ? "Include" : "Skip"}
                               onClick={() => setSkippedActivityIds(prev => { const n = new Set(prev); isSkipped ? n.delete(activity.id) : n.add(activity.id); return n; })}
-                              className={`shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${isSkipped ? "bg-gray-200 border-gray-400" : "border-gray-300 hover:border-gray-500"}`}
+                              className={`shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${isSkipped ? "border-gray-300 hover:border-gray-500" : "bg-amber-500 border-amber-500 hover:bg-amber-600"}`}
                             >
-                              {isSkipped && <svg className="w-3 h-3 text-gray-500 pointer-events-none" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 12 12"><path strokeLinecap="round" d="M2 6h8"/></svg>}
+                              {!isSkipped && <svg className="w-3 h-3 text-white pointer-events-none" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 12 12"><path strokeLinecap="round" strokeLinejoin="round" d="M2 6l3 3 5-5"/></svg>}
                             </button>
                             <button
                               draggable={false}
@@ -828,9 +828,9 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                               type="button"
                               title={isSkipped ? "Include" : "Skip"}
                               onClick={() => setSkippedActivityIds(prev => { const n = new Set(prev); isSkipped ? n.delete(a.id) : n.add(a.id); return n; })}
-                              className={`shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${isSkipped ? "bg-gray-200 border-gray-400" : "border-gray-300 hover:border-gray-500"}`}
+                              className={`shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${isSkipped ? "border-gray-300 hover:border-gray-500" : "bg-amber-500 border-amber-500 hover:bg-amber-600"}`}
                             >
-                              {isSkipped && <svg className="w-3 h-3 text-gray-500 pointer-events-none" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 12 12"><path strokeLinecap="round" d="M2 6h8"/></svg>}
+                              {!isSkipped && <svg className="w-3 h-3 text-white pointer-events-none" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 12 12"><path strokeLinecap="round" strokeLinejoin="round" d="M2 6l3 3 5-5"/></svg>}
                             </button>
                             <button
                               draggable={false}
