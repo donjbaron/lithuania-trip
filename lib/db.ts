@@ -134,6 +134,7 @@ async function initSchema(client: Client) {
     "ALTER TABLE restaurants ADD COLUMN cuisine TEXT",
     "ALTER TABLE wishlist_items ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE wishlist_items ADD COLUMN duration_mins INTEGER NOT NULL DEFAULT 90",
+    "ALTER TABLE itinerary_days ADD COLUMN breakfast_time TEXT",
   ];
 
   for (const sql of migrations) {

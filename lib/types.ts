@@ -6,6 +6,7 @@ export interface ItineraryDay {
   label: string | null;
   city: string | null;
   summary: string | null;
+  breakfast_time: string | null;
   sort_order: number;
   created_at: string;
 }

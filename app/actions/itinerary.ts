@@ -29,9 +29,10 @@ export async function updateDay(id: number, formData: FormData) {
   const trip_date = formData.get("trip_date") as string;
   const city = (formData.get("city") as string) || null;
   const summary = (formData.get("summary") as string) || null;
+  const breakfast_time = (formData.get("breakfast_time") as string) || null;
   await dbRun(
-    "UPDATE itinerary_days SET label = ?, trip_date = ?, city = ?, summary = ? WHERE id = ?",
-    [label, trip_date, city, summary, id]
+    "UPDATE itinerary_days SET label = ?, trip_date = ?, city = ?, summary = ?, breakfast_time = ? WHERE id = ?",
+    [label, trip_date, city, summary, breakfast_time, id]
   );
   revalidatePath("/itinerary", "layout");
 }

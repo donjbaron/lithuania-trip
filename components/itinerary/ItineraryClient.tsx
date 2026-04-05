@@ -722,10 +722,16 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
 
     // 6. Build slots, scheduling forward from real travel times
     const slots: ItinerarySlot[] = [];
-    // Breakfast at 9 AM; sightseeing starts at 10 AM after 60-min breakfast
-    let currentMins = isArrivalDay ? 16 * 60 : 10 * 60;
+    // Parse breakfast time from day setting (stored as "9:00", "8:30", etc.)
+    const bfRaw = selectedDay?.breakfast_time ?? "9:00";
+    const [bfH, bfM] = bfRaw.split(":").map(Number);
+    const bfMins = bfH * 60 + (bfM || 0);
+    const bfTimeStr = minsToTime(bfMins);
+    // First activity starts after breakfast (1 hr) + travel time to first stop
+    // Travel time will be refined by recomputeSlotTimes once calcLegs returns
+    let currentMins = isArrivalDay ? 16 * 60 : bfMins + MEAL_DURATION;
     if (!isArrivalDay) {
-      slots.push({ type: "meal", label: "Breakfast", time: "9:00 AM", ...(assignedBreakfast ? { restaurant: assignedBreakfast } : {}) });
+      slots.push({ type: "meal", label: "Breakfast", time: bfTimeStr, ...(assignedBreakfast ? { restaurant: assignedBreakfast } : {}) });
     }
 
     let lunchInserted = false;
@@ -960,6 +966,11 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                   {LITHUANIAN_CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
                 <input type="text" name="label" defaultValue={selectedDay.label ?? ""} placeholder="Label (optional)" className="border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 w-36" />
+                <select name="breakfast_time" defaultValue={selectedDay.breakfast_time ?? "9:00"} className="border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 shrink-0">
+                  {["7:00","7:30","8:00","8:30","9:00","9:30","10:00"].map(t => (
+                    <option key={t} value={t}>🍳 {t}</option>
+                  ))}
+                </select>
                 <input type="text" name="summary" defaultValue={selectedDay.summary ?? ""} placeholder="Day summary…" className="border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 flex-1 min-w-0" />
                 <div className="flex gap-2 shrink-0">
                   <button type="submit" className="px-3 py-1 bg-amber-500 text-white rounded text-xs font-medium hover:bg-amber-600">Save</button>
