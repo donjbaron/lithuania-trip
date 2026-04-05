@@ -250,6 +250,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
   const [localActivityOrder, setLocalActivityOrder] = useState<number[] | null>(null);
   const [orderSaved, setOrderSaved] = useState(false);
   const [skippedActivityIds, setSkippedActivityIds] = useState<Set<number>>(new Set());
+  const [travelLegs, setTravelLegs] = useState<Array<{ duration: string; mode: "walk" | "drive" } | null>>([]);
   const autoSuggestRef = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -362,6 +363,55 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     }
   }
 
+  async function calcLegs(orderedActivities: WishlistItem[]) {
+    const empty = new Array(Math.max(0, orderedActivities.length - 1)).fill(null);
+    if (orderedActivities.length < 2) { setTravelLegs(empty); return; }
+
+    const validPairs = orderedActivities
+      .slice(0, -1)
+      .map((a, i) => ({ a, b: orderedActivities[i + 1], i }))
+      .filter(p => p.a.lat != null && p.a.lng != null && p.b.lat != null && p.b.lng != null);
+
+    const legs = [...empty];
+    if (validPairs.length === 0) { setTravelLegs(legs); return; }
+
+    try {
+      await loadGoogleMapsWithPlaces();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const g = (window as any).google;
+      await new Promise<void>((resolve) => {
+        new g.maps.DistanceMatrixService().getDistanceMatrix(
+          {
+            origins: validPairs.map(p => ({ lat: p.a.lat!, lng: p.a.lng! })),
+            destinations: validPairs.map(p => ({ lat: p.b.lat!, lng: p.b.lng! })),
+            travelMode: g.maps.TravelMode.DRIVING,
+            unitSystem: g.maps.UnitSystem.METRIC,
+          },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (res: any, status: string) => {
+            if (status === "OK") {
+              validPairs.forEach((pair, j) => {
+                const el = res.rows[j]?.elements[j];
+                if (el?.status === "OK") {
+                  const dist: number = el.distance.value;
+                  if (dist < 1600) {
+                    const mins = Math.max(1, Math.round(dist / 80));
+                    legs[pair.i] = { duration: `~${mins} min`, mode: "walk" };
+                  } else {
+                    legs[pair.i] = { duration: el.duration.text, mode: "drive" };
+                  }
+                }
+              });
+            }
+            resolve();
+          }
+        );
+      });
+    } catch { /* ignore */ }
+
+    setTravelLegs(legs);
+  }
+
   function suggestItinerary() {
     if (itinerarySuggested) {
       setItinerarySuggested(false);
@@ -369,6 +419,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
       setRouteIds([]);
       setSelectedActivityIds(new Set());
       setBusySuggestion(null);
+      setTravelLegs([]);
       return;
     }
 
@@ -382,6 +433,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     setRouteIds([]);
     setSelectedActivityIds(new Set());
     setItinerarySuggested(true);
+    calcLegs(timed.map(t => t.activity)).catch(() => {});
   }
 
   function toggleActivity(id: number) {
@@ -664,7 +716,9 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                 {itinerarySuggested ? (
                   /* ── Suggested itinerary view ── */
                   <div className="divide-y divide-gray-100">
-                    {itinerarySlots.map((slot, i) => {
+                    {(() => {
+                      let actIdx = 0;
+                      return itinerarySlots.map((slot, i) => {
                       if (slot.type === "meal") {
                         const isSunset = slot.label === "Sunset";
                         return (
@@ -676,6 +730,8 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                           </div>
                         );
                       }
+                      const thisActIdx = actIdx++;
+                      const leg = thisActIdx > 0 ? (travelLegs[thisActIdx - 1] ?? null) : null;
                       const { activity, time } = slot;
                       const interested = FAMILIES.filter((f) => activity[FAMILY_INTEREST[f.key]] as number);
                       const isDragging = slotDragId === activity.id;
@@ -683,6 +739,18 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                       const showInsert = slotInsertBefore === activity.id && slotDragId !== activity.id;
                       return (
                         <div key={activity.id}>
+                          {leg && (
+                            <div className="px-4 py-1 flex items-center gap-2 bg-white border-b border-gray-100">
+                              <span className="w-16 shrink-0" />
+                              <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                                {leg.mode === "walk"
+                                  ? <svg className="w-3.5 h-3.5 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M13.5 5.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7z"/></svg>
+                                  : <svg className="w-3.5 h-3.5 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/></svg>
+                                }
+                                <span>{leg.duration} {leg.mode}</span>
+                              </div>
+                            </div>
+                          )}
                           {showInsert && <div className="h-0.5 bg-blue-500 mx-4" />}
                           <div
                             draggable
@@ -722,6 +790,9 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                               setRouteIds(newIds);
                               setSlotDragId(null);
                               setSlotInsertBefore(null);
+
+                              const newActOrder = newIds.map(id => activitiesForDay.find(x => x.id === id)!).filter(Boolean);
+                              calcLegs(newActOrder).catch(() => {});
 
                               const excessIds = activitiesForDay.filter(a => !newIds.includes(a.id)).map(a => a.id);
                               reorderActivities([...newIds, ...excessIds]);
@@ -771,7 +842,8 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                           </div>
                         </div>
                       );
-                    })}
+                    });
+                    })()}
                     {slotInsertBefore === "end" && slotDragId !== null && <div className="h-0.5 bg-blue-500 mx-4" />}
                   </div>
                 ) : (
