@@ -242,16 +242,15 @@ function recomputeSlotTimes(
   let prevEndMins: number | null = null;
   let stopIdx = 0;
   return slots.map(slot => {
-    if (slot.type === "meal" && !(slot as Extract<ItinerarySlot, {type:"meal"}>).restaurant) return slot;
-    const hasCoords = slot.type === "activity"
+    const meal = slot.type === "meal" ? (slot as Extract<ItinerarySlot, {type:"meal"}>): null;
+    // Meals without a restaurant still advance the clock but aren't route stops
+    const isRouteStop = slot.type === "activity"
       ? ((slot as Extract<ItinerarySlot, {type:"activity"}>).activity.lat != null || !!((slot as Extract<ItinerarySlot, {type:"activity"}>).activity.address))
-      : ((slot as Extract<ItinerarySlot, {type:"meal"}>).restaurant?.lat != null || !!((slot as Extract<ItinerarySlot, {type:"meal"}>).restaurant?.address));
-    const travel = (hasCoords && stopIdx > 0) ? parseLegMins(legs[stopIdx - 1] ?? null) : 0;
-    if (hasCoords) stopIdx++;
+      : (meal?.restaurant != null && (meal.restaurant.lat != null || !!meal.restaurant.address));
+    const travel = (isRouteStop && stopIdx > 0) ? parseLegMins(legs[stopIdx - 1] ?? null) : 0;
+    if (isRouteStop) stopIdx++;
     let startMins = (prevEndMins === null ? anchorMins : prevEndMins) + travel;
-    if (slot.type === "meal" && (slot as Extract<ItinerarySlot, {type:"meal"}>).label === "Lunch") {
-      startMins = Math.max(startMins, 12 * 60);
-    }
+    if (meal?.label === "Lunch") startMins = Math.max(startMins, 12 * 60);
     const duration = slot.type === "activity"
       ? getDuration((slot as Extract<ItinerarySlot, {type:"activity"}>).activity.id)
       : MEAL_DURATION;
