@@ -215,6 +215,56 @@ function findBestRoute(matrix: MatrixCell[][]): number[] {
   return best;
 }
 
+// Directed path TSP: find best route from fixedStart to fixedEnd through all others.
+// The start and end indices are fixed; 2-opt only swaps the middle.
+function findBestPathRoute(matrix: MatrixCell[][], fixedStart: number, fixedEnd: number): number[] {
+  const n = matrix.length;
+  if (n <= 1) return [fixedStart];
+  if (n === 2) return [fixedStart, fixedEnd];
+
+  // Build route: NN from fixedStart, reserve fixedEnd for last
+  const visited = new Set([fixedStart, fixedEnd]);
+  const route = [fixedStart];
+  while (route.length < n - 1) {
+    const last = route[route.length - 1];
+    let best = -1, bestMins = Infinity;
+    for (let j = 0; j < n; j++) {
+      if (!visited.has(j) && matrix[last][j].mins < bestMins) { best = j; bestMins = matrix[last][j].mins; }
+    }
+    if (best === -1) break;
+    visited.add(best); route.push(best);
+  }
+  route.push(fixedEnd);
+
+  // 2-opt over middle only (keep index 0 = fixedStart, last = fixedEnd)
+  let improved = true;
+  while (improved) {
+    improved = false;
+    for (let i = 1; i < route.length - 2; i++) {
+      for (let j = i + 1; j < route.length - 1; j++) {
+        const candidate = [...route.slice(0, i), ...route.slice(i, j + 1).reverse(), ...route.slice(j + 1)];
+        if (routeTotalMins(candidate, matrix) < routeTotalMins(route, matrix)) {
+          route.splice(0, route.length, ...candidate);
+          improved = true;
+        }
+      }
+    }
+  }
+  return route;
+}
+
+// Index of the activity closest to given lat/lng
+function closestIdx(activities: WishlistItem[], lat: number, lng: number): number {
+  let best = 0, bestD = Infinity;
+  for (let i = 0; i < activities.length; i++) {
+    const a = activities[i];
+    if (a.lat == null) continue;
+    const d = Math.hypot(a.lat - lat, a.lng! - lng);
+    if (d < bestD) { best = i; bestD = d; }
+  }
+  return best;
+}
+
 function matrixCellToLeg(cell: MatrixCell): { duration: string; mode: "walk" | "drive" } {
   if (cell.meters > 0 && cell.meters < 1600) {
     return { duration: `~${Math.max(1, Math.round(cell.meters / 80))} min`, mode: "walk" };
@@ -609,7 +659,25 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     const routable = sightseeing.filter(a => a.lat != null && a.lng != null);
     const unroutable = sightseeing.filter(a => a.lat == null || a.lng == null);
 
-    // 3. Build N×N distance matrix and find optimal route order
+    // 3. Detect travel direction from transit markers (e.g. "Leave Vilnius" / "Arrive Kaunas")
+    let startCoords: [number, number] | null = null;
+    let endCoords: [number, number] | null = null;
+    for (const { a } of transitFixed) {
+      const leaveMatch = a.title.match(/\b(?:leave|depart(?:ing)?|leaving)\s+(\w+)/i);
+      const arriveMatch = a.title.match(/\b(?:arriv(?:e|ing|al)?|reach(?:ing)?)\s+(\w+)/i);
+      if (leaveMatch) {
+        const c = Object.keys(CITY_COORDS).find(k => k.toLowerCase() === leaveMatch[1].toLowerCase());
+        if (c) startCoords = CITY_COORDS[c];
+      }
+      if (arriveMatch) {
+        const c = Object.keys(CITY_COORDS).find(k => k.toLowerCase() === arriveMatch[1].toLowerCase());
+        if (c) endCoords = CITY_COORDS[c];
+      }
+    }
+    // Fall back: use day city as start if no transit marker
+    if (!startCoords && city && CITY_COORDS[city]) startCoords = CITY_COORDS[city];
+
+    // 4. Build N×N distance matrix and find optimal route order
     let orderedActivities = routable;
     const activityLegs: Array<{ duration: string; mode: "walk" | "drive" } | null> = [];
     let matrix: MatrixCell[][] = [];
@@ -617,7 +685,19 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     if (routable.length >= 2) {
       try {
         matrix = await buildTravelMatrix(routable.map(a => ({ lat: a.lat!, lng: a.lng! })));
-        const order = findBestRoute(matrix);
+        let order: number[];
+        if (startCoords && endCoords) {
+          // Directed day: fix first activity near departure city, last near destination
+          const si = closestIdx(routable, startCoords[0], startCoords[1]);
+          const ei = closestIdx(routable, endCoords[0], endCoords[1]);
+          order = si !== ei ? findBestPathRoute(matrix, si, ei) : findBestRoute(matrix);
+        } else if (startCoords) {
+          // Only know starting city: anchor the first stop
+          const si = closestIdx(routable, startCoords[0], startCoords[1]);
+          order = tspTwoOpt(tspNearestNeighbor(matrix, si), matrix);
+        } else {
+          order = findBestRoute(matrix);
+        }
         orderedActivities = order.map(i => routable[i]);
         for (let i = 0; i < order.length - 1; i++) {
           activityLegs.push(matrixCellToLeg(matrix[order[i]][order[i + 1]]));
