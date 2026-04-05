@@ -248,7 +248,10 @@ function recomputeSlotTimes(
       : ((slot as Extract<ItinerarySlot, {type:"meal"}>).restaurant?.lat != null || !!((slot as Extract<ItinerarySlot, {type:"meal"}>).restaurant?.address));
     const travel = (hasCoords && stopIdx > 0) ? parseLegMins(legs[stopIdx - 1] ?? null) : 0;
     if (hasCoords) stopIdx++;
-    const startMins = (prevEndMins === null ? anchorMins : prevEndMins) + travel;
+    let startMins = (prevEndMins === null ? anchorMins : prevEndMins) + travel;
+    if (slot.type === "meal" && (slot as Extract<ItinerarySlot, {type:"meal"}>).label === "Lunch") {
+      startMins = Math.max(startMins, 12 * 60);
+    }
     const duration = slot.type === "activity"
       ? getDuration((slot as Extract<ItinerarySlot, {type:"activity"}>).activity.id)
       : MEAL_DURATION;
