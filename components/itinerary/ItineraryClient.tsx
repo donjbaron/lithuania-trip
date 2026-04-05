@@ -591,38 +591,30 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                       {orderSaved ? "Saved ✓" : "Save order"}
                     </button>
                   )}
-                  {!itinerarySuggested && !localActivityOrder && (
-                    <>
-                      <span className="text-xs text-gray-400">
-                        {selectedActivityIds.size > 0 ? `${selectedActivityIds.size} on map` : "tap to map"}
-                      </span>
-                      {(() => {
-                        const allSelected = activitiesForDay.every((a) => selectedActivityIds.has(a.id));
-                        return (
-                          <button
-                            onClick={() => setSelectedActivityIds(allSelected ? new Set() : new Set(activitiesForDay.map((a) => a.id)))}
-                            className="text-xs font-medium text-amber-600 hover:text-amber-800 transition-colors"
-                          >
-                            {allSelected ? "Deselect all" : "Select all"}
-                          </button>
-                        );
-                      })()}
-                    </>
-                  )}
-                  {itinerarySuggested && (
-                    <button
-                      onClick={() => {
-                        const ids = itinerarySlots
+                  <button
+                    onClick={() => {
+                      const isTransit = (a: WishlistItem) =>
+                        /\b(arriv|depart|flight|transfer|check.?in|check.?out|train|bus)\b/i.test(a.title);
+                      let ids: number[];
+                      if (itinerarySuggested) {
+                        ids = itinerarySlots
                           .filter((s) => s.type === "activity")
-                          .map((s) => (s as Extract<typeof s, { type: "activity" }>).activity.id);
-                        setRouteIds(ids);
-                        setSelectedActivityIds(new Set(ids));
-                      }}
-                      className="text-xs font-semibold px-2.5 py-1 rounded-full transition-colors bg-blue-600 text-white hover:bg-blue-700"
-                    >
-                      Map itinerary
-                    </button>
-                  )}
+                          .map((s) => (s as Extract<typeof s, { type: "activity" }>).activity)
+                          .filter((a) => !isTransit(a))
+                          .map((a) => a.id);
+                      } else {
+                        const ordered = localActivityOrder
+                          ? localActivityOrder.map((id) => activitiesForDay.find((a) => a.id === id)!).filter(Boolean)
+                          : activitiesForDay;
+                        ids = ordered.filter((a) => !isTransit(a)).map((a) => a.id);
+                      }
+                      setRouteIds(ids);
+                      setSelectedActivityIds(new Set(ids));
+                    }}
+                    className="text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                  >
+                    Visualize
+                  </button>
                   <button
                     onClick={suggestItinerary}
                     className={`text-xs font-semibold px-2.5 py-1 rounded-full transition-colors ${
