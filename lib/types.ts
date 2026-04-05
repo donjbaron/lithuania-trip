@@ -62,6 +62,7 @@ export interface WishlistItem {
   lat: number | null;
   lng: number | null;
   is_done: number;
+  duration_mins: number;
   added_by: string | null;
   created_at: string;
 }

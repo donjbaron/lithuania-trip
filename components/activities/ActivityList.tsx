@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import Image from "next/image";
 import { FAMILIES, type WishlistItem } from "@/lib/types";
-import { deleteActivity, toggleInterest, updateActivity, setAllInterest, moveActivitiesToDay, unassignActivityDate, reorderActivities } from "@/app/actions/activities";
+import { deleteActivity, toggleInterest, updateActivity, setAllInterest, moveActivitiesToDay, unassignActivityDate, reorderActivities, updateActivityDuration } from "@/app/actions/activities";
 
 const CITIES = ["Vilnius", "Kaunas", "Trakai", "Klaipeda", "Siauliai", "Palanga", "Other"];
 const TRIP_DATES = [
@@ -83,6 +83,13 @@ function InsertLine() {
   return <div className="h-0.5 mx-3 bg-blue-400 rounded-full pointer-events-none" />;
 }
 
+function fmtDuration(mins: number): string {
+  if (mins < 60) return `${mins}m`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
 function ActivityRow({
   item,
   isDragging,
@@ -101,7 +108,15 @@ function ActivityRow({
   onDragOver: (above: boolean) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [localDuration, setLocalDuration] = useState<number | null>(null);
   const rowRef = useRef<HTMLDivElement>(null);
+  const displayDuration = localDuration ?? item.duration_mins ?? 90;
+
+  function changeDuration(delta: number) {
+    const next = Math.max(30, displayDuration + delta);
+    setLocalDuration(next);
+    updateActivityDuration(item.id, next).catch(() => {});
+  }
 
   if (editing) {
     return (
@@ -192,6 +207,14 @@ function ActivityRow({
               {item.url && (
                 <p className="text-xs text-amber-600 mt-0.5 truncate">{item.url}</p>
               )}
+            </div>
+            {/* Duration +/- control */}
+            <div className="flex flex-col items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+              <button type="button" draggable={false} onClick={() => changeDuration(30)}
+                className="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-amber-600 text-base leading-none">+</button>
+              <span className="text-xs text-gray-500 tabular-nums whitespace-nowrap">{fmtDuration(displayDuration)}</span>
+              <button type="button" draggable={false} onClick={() => changeDuration(-30)}
+                className="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-amber-600 text-base leading-none">−</button>
             </div>
             {/* Action buttons – pointer-events kept so they remain clickable */}
             <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>

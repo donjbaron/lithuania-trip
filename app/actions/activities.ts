@@ -190,6 +190,11 @@ export async function unassignActivityDate(id: number) {
   revalidate();
 }
 
+export async function updateActivityDuration(id: number, durationMins: number) {
+  await dbRun("UPDATE wishlist_items SET duration_mins = ? WHERE id = ?", [durationMins, id]);
+  revalidate();
+}
+
 export async function reorderActivities(orderedIds: number[]) {
   for (let i = 0; i < orderedIds.length; i++) {
     await dbRun("UPDATE wishlist_items SET sort_order = ? WHERE id = ?", [i, orderedIds[i]]);

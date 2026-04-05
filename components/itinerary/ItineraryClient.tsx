@@ -12,7 +12,7 @@ import {
   LITHUANIAN_CITIES,
 } from "@/lib/types";
 import { updateDay } from "@/app/actions/itinerary";
-import { moveActivitiesToDay, reorderActivities } from "@/app/actions/activities";
+import { moveActivitiesToDay, reorderActivities, updateActivityDuration } from "@/app/actions/activities";
 import { assignRestaurantToDay, unassignRestaurant, addAndAssignRestaurant } from "@/app/actions/restaurants";
 import FamilySection from "./FamilySection";
 import DayItemRow from "./DayItemRow";
@@ -207,6 +207,63 @@ function minsToTime(totalMins: number) {
   return `${hour}:${m.toString().padStart(2, "0")} ${ampm}`;
 }
 
+function parseMins(timeStr: string): number {
+  const m = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+  if (!m) return 10 * 60;
+  let h = parseInt(m[1]);
+  const min = parseInt(m[2]);
+  const pm = m[3].toUpperCase() === "PM";
+  if (pm && h !== 12) h += 12;
+  if (!pm && h === 12) h = 0;
+  return h * 60 + min;
+}
+
+function parseLegMins(leg: { duration: string; mode: "walk" | "drive" } | null): number {
+  if (!leg) return 0;
+  const s = leg.duration;
+  let total = 0;
+  const hrs = s.match(/(\d+)\s*h/);
+  const mins = s.match(/(\d+)\s*min/);
+  if (hrs) total += parseInt(hrs[1]) * 60;
+  if (mins) total += parseInt(mins[1]);
+  return total;
+}
+
+const MEAL_DURATION = 60;
+
+function recomputeSlotTimes(
+  slots: ItinerarySlot[],
+  legs: Array<{ duration: string; mode: "walk" | "drive" } | null>,
+  getDuration: (id: number) => number,
+): ItinerarySlot[] {
+  const first = slots.find(s => s.type === "activity" || (s.type === "meal" && (s as Extract<ItinerarySlot, {type:"meal"}>).restaurant));
+  if (!first) return slots;
+  const anchorMins = parseMins(first.time);
+  let prevEndMins: number | null = null;
+  let stopIdx = 0;
+  return slots.map(slot => {
+    if (slot.type === "meal" && !(slot as Extract<ItinerarySlot, {type:"meal"}>).restaurant) return slot;
+    const hasCoords = slot.type === "activity"
+      ? ((slot as Extract<ItinerarySlot, {type:"activity"}>).activity.lat != null)
+      : ((slot as Extract<ItinerarySlot, {type:"meal"}>).restaurant?.lat != null);
+    const travel = (hasCoords && stopIdx > 0) ? parseLegMins(legs[stopIdx - 1] ?? null) : 0;
+    if (hasCoords) stopIdx++;
+    const startMins = (prevEndMins === null ? anchorMins : prevEndMins) + travel;
+    const duration = slot.type === "activity"
+      ? getDuration((slot as Extract<ItinerarySlot, {type:"activity"}>).activity.id)
+      : MEAL_DURATION;
+    prevEndMins = startMins + duration;
+    return { ...slot, time: minsToTime(startMins) };
+  });
+}
+
+function fmtDuration(mins: number): string {
+  if (mins < 60) return `${mins}m`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
 // Vilnius-area sunset times for each trip day (Lithuania summer, UTC+3)
 const SUNSET: Record<string, string> = {
   "2026-07-31": "9:10 PM",
@@ -300,6 +357,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
   const [skippedActivityIds, setSkippedActivityIds] = useState<Set<number>>(new Set());
   const [travelLegs, setTravelLegs] = useState<Array<{ duration: string; mode: "walk" | "drive" } | null>>([]);
   const [routePoints, setRoutePoints] = useState<{ lat: number; lng: number }[]>([]);
+  const [localDurations, setLocalDurations] = useState<Record<number, number>>({});
   const autoSuggestRef = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -361,6 +419,27 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
 
     setTimeout(() => panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   }, [selectedDate]);
+
+  // Recompute cascading activity times whenever legs or durations change
+  useEffect(() => {
+    if (!itinerarySuggested) return;
+    setItinerarySlots(prev => {
+      if (prev.length === 0) return prev;
+      return recomputeSlotTimes(prev, travelLegs, (id) => localDurations[id] ?? activities.find(a => a.id === id)?.duration_mins ?? 90);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [travelLegs, localDurations, itinerarySuggested]);
+
+  function getDuration(id: number): number {
+    return localDurations[id] ?? activities.find(a => a.id === id)?.duration_mins ?? 90;
+  }
+
+  function changeDuration(id: number, delta: number) {
+    const current = getDuration(id);
+    const next = Math.max(30, current + delta);
+    setLocalDurations(prev => ({ ...prev, [id]: next }));
+    updateActivityDuration(id, next).catch(() => {});
+  }
 
   async function suggestNearbyRestaurant(meal: "lunch" | "dinner", lat: number, lng: number) {
     setRestaurantSearching(meal);
@@ -538,11 +617,28 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
       return [];
     });
 
+    // Build route points for auto-visualization (skip skipped/transit activities)
+    const exclude = (a: WishlistItem) =>
+      skippedActivityIds.has(a.id) ||
+      /\b(arriv|depart|flight|transfer|check.?in|check.?out|train|bus)\b/i.test(a.title);
+    const routeIds = enrichedSlots.filter(s => s.type === "activity").map(s => (s as Extract<ItinerarySlot, {type:"activity"}>).activity).filter(a => !exclude(a)).map(a => a.id);
+    const pts = enrichedSlots.flatMap(s => {
+      if (s.type === "activity") {
+        const a = (s as Extract<ItinerarySlot, {type:"activity"}>).activity;
+        if (!exclude(a) && a.lat != null && a.lng != null) return [{ lat: a.lat, lng: a.lng }];
+      }
+      if (s.type === "meal") {
+        const r = (s as Extract<ItinerarySlot, {type:"meal"}>).restaurant;
+        if (r?.lat != null && r.lng != null) return [{ lat: r.lat, lng: r.lng }];
+      }
+      return [];
+    });
+
     setBusySuggestion(excess.length > 0 ? { excess, nextDay } : null);
     setItinerarySlots(enrichedSlots);
-    setRouteIds([]);
-    setRoutePoints([]);
-    setSelectedActivityIds(new Set());
+    setRouteIds(routeIds);
+    setRoutePoints(pts);
+    setSelectedActivityIds(new Set(routeIds));
     setItinerarySuggested(true);
     calcLegs(stops).catch(() => {});
   }
@@ -973,6 +1069,13 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                                     : activity.address && <p className="text-xs text-gray-400 truncate mt-0.5">{activity.address}</p>}
                                 </div>
                               </button>
+                              <div className="flex flex-col items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
+                                <button draggable={false} type="button" onClick={() => changeDuration(activity.id, 30)}
+                                  className="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-amber-600 text-base leading-none">+</button>
+                                <span className="text-xs text-gray-500 tabular-nums whitespace-nowrap">{fmtDuration(getDuration(activity.id))}</span>
+                                <button draggable={false} type="button" onClick={() => changeDuration(activity.id, -30)}
+                                  className="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-amber-600 text-base leading-none">−</button>
+                              </div>
                               {interested.length > 0 && (
                                 <div className="flex items-center gap-1 shrink-0 pointer-events-none">
                                   {interested.map((f) => (
@@ -1065,6 +1168,13 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                                   : a.address && <p className="text-xs text-gray-400 truncate mt-0.5">{a.address}</p>}
                               </div>
                             </button>
+                            <div className="flex flex-col items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
+                              <button draggable={false} type="button" onClick={() => changeDuration(a.id, 30)}
+                                className="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-amber-600 text-base leading-none">+</button>
+                              <span className="text-xs text-gray-500 tabular-nums whitespace-nowrap">{fmtDuration(getDuration(a.id))}</span>
+                              <button draggable={false} type="button" onClick={() => changeDuration(a.id, -30)}
+                                className="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-amber-600 text-base leading-none">−</button>
+                            </div>
                             {interested.length > 0 && (
                               <div className="flex items-center gap-1 shrink-0 pointer-events-none">
                                 {interested.map((f) => (
