@@ -799,9 +799,12 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     const excess = orderedActivities.length > TOO_BUSY ? orderedActivities.slice(TOO_BUSY) : [];
     setBusySuggestion(excess.length > 0 ? { excess, nextDay } : null);
 
-    // 8. Route visualization
+    // 8. Route visualization — prepend breakfast location so it's the first map pin
     const routeIds = orderedActivities.map(a => a.id);
-    const pts = orderedActivities.filter(a => a.lat != null && a.lng != null).map(a => ({ lat: a.lat!, lng: a.lng! }));
+    const bfPt = assignedBreakfast?.lat != null && assignedBreakfast.lng != null
+      ? [{ lat: assignedBreakfast.lat, lng: assignedBreakfast.lng }]
+      : (startCoords ? [{ lat: startCoords[0], lng: startCoords[1] }] : []);
+    const pts = [...bfPt, ...orderedActivities.filter(a => a.lat != null && a.lng != null).map(a => ({ lat: a.lat!, lng: a.lng! }))];
 
     setItinerarySlots(slots);
     setRouteIds(routeIds);
@@ -845,6 +848,28 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
   async function handleUpdateDay(formData: FormData) {
     await updateDay(selectedDay!.id, formData);
     setEditing(false);
+  }
+
+  async function handleBreakfastTimeChange(newHHMM: string) {
+    // newHHMM is "9:00" 24h format (matches DB); convert to slot time format "9:00 AM"
+    const [bfH, bfM] = newHHMM.split(":").map(Number);
+    const newSlotTime = minsToTime(bfH * 60 + (bfM || 0));
+    // Re-cascade slot times immediately using new breakfast anchor
+    setItinerarySlots(prev => {
+      if (prev.length === 0) return prev;
+      const updated: ItinerarySlot[] = [{ ...prev[0], time: newSlotTime }, ...prev.slice(1)];
+      return recomputeSlotTimes(updated, travelLegs, (id) => localDurations[id] ?? activities.find(a => a.id === id)?.duration_mins ?? 90);
+    });
+    // Persist to DB
+    if (selectedDay) {
+      const fd = new FormData();
+      fd.set("trip_date", selectedDay.trip_date);
+      fd.set("breakfast_time", newHHMM);
+      if (selectedDay.label) fd.set("label", selectedDay.label);
+      if (selectedDay.city) fd.set("city", selectedDay.city);
+      if (selectedDay.summary) fd.set("summary", selectedDay.summary);
+      await updateDay(selectedDay.id, fd);
+    }
   }
 
   return (
@@ -1202,12 +1227,25 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
 
                         if (slot.type === "meal" && !slot.restaurant) {
                           const isSunset = slot.label === "Sunset";
+                          const isBreakfast = slot.label === "Breakfast";
                           return (
-                            <div key={key} className={`px-4 py-2 flex items-center gap-3 ${isSunset ? "bg-orange-50" : "bg-gray-50"}`}>
-                              <span className={`text-xs font-bold w-16 shrink-0 ${isSunset ? "text-orange-400" : "text-gray-400"}`}>{slot.time}</span>
-                              <span className={`text-xs font-semibold uppercase tracking-wide ${isSunset ? "text-orange-500" : "text-gray-500"}`}>
-                                {isSunset ? "Sunset" : slot.label}
+                            <div key={key} className={`px-4 py-2 flex items-center gap-3 ${isSunset ? "bg-orange-50" : "bg-amber-50/60"}`}>
+                              <span className={`text-xs font-bold w-16 shrink-0 ${isSunset ? "text-orange-400" : isBreakfast ? "text-amber-600" : "text-gray-400"}`}>{slot.time}</span>
+                              <span className={`text-xs font-semibold uppercase tracking-wide ${isSunset ? "text-orange-500" : isBreakfast ? "text-amber-700" : "text-gray-500"}`}>
+                                {isSunset ? "🌅 Sunset" : isBreakfast ? "🍳 Breakfast" : slot.label}
                               </span>
+                              {isBreakfast && (
+                                <select
+                                  value={(() => { const m = parseMins(slot.time); return `${Math.floor(m/60)}:${String(m%60).padStart(2,"0")}`; })()}
+                                  onChange={e => handleBreakfastTimeChange(e.target.value)}
+                                  className="ml-auto text-xs border border-amber-300 rounded px-2 py-1 bg-white text-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                                  title="Breakfast time"
+                                >
+                                  {["7:00","7:30","8:00","8:30","9:00","9:30","10:00"].map(t => (
+                                    <option key={t} value={t}>{t}</option>
+                                  ))}
+                                </select>
+                              )}
                             </div>
                           );
                         }
@@ -1217,6 +1255,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
 
                         if (slot.type === "meal" && slot.restaurant) {
                           const rest = slot.restaurant;
+                          const isBreakfastSlot = slot.label === "Breakfast";
                           return (
                             <div key={key}>
                               {leg && <TravelLeg leg={leg} />}
@@ -1224,17 +1263,30 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                               <div
                                 data-drag-row
                                 {...rowDropProps(key)}
-                                className={`px-4 py-3 flex items-center gap-3 select-none transition-opacity bg-indigo-50/40 ${isDragging ? "opacity-40" : ""}`}
+                                className={`px-4 py-3 flex items-center gap-3 select-none transition-opacity ${isBreakfastSlot ? "bg-amber-50/60" : "bg-indigo-50/40"} ${isDragging ? "opacity-40" : ""}`}
                               >
-                                <span className="text-xs font-bold text-indigo-500 w-16 shrink-0 pointer-events-none">{slot.time}</span>
+                                <span className={`text-xs font-bold w-16 shrink-0 pointer-events-none ${isBreakfastSlot ? "text-amber-600" : "text-indigo-500"}`}>{slot.time}</span>
                                 {dragHandle(key)}
-                                <span className="text-xs font-semibold uppercase tracking-wide text-indigo-400 shrink-0 pointer-events-none">{slot.label}</span>
+                                <span className={`text-xs font-semibold uppercase tracking-wide shrink-0 pointer-events-none ${isBreakfastSlot ? "text-amber-700" : "text-indigo-400"}`}>{isBreakfastSlot ? "🍳 Breakfast" : slot.label}</span>
                                 {rest.image_url && <img src={rest.image_url} alt={rest.name} draggable={false} className="w-9 h-9 rounded-lg object-cover shrink-0 pointer-events-none" />}
                                 <div className="min-w-0 flex-1 pointer-events-none">
                                   <p className="text-sm font-semibold text-gray-800 truncate">{rest.name}</p>
                                   {rest.cuisine && <p className="text-xs text-indigo-600">{rest.cuisine}</p>}
                                   {rest.address && <p className="text-xs text-gray-400 truncate">{rest.address}</p>}
                                 </div>
+                                {isBreakfastSlot && (
+                                  <select
+                                    value={(() => { const m = parseMins(slot.time); return `${Math.floor(m/60)}:${String(m%60).padStart(2,"0")}`; })()}
+                                    onClick={e => e.stopPropagation()}
+                                    onChange={e => handleBreakfastTimeChange(e.target.value)}
+                                    className="text-xs border border-amber-300 rounded px-2 py-1 bg-white text-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-400 shrink-0"
+                                    title="Breakfast time"
+                                  >
+                                    {["7:00","7:30","8:00","8:30","9:00","9:30","10:00"].map(t => (
+                                      <option key={t} value={t}>{t}</option>
+                                    ))}
+                                  </select>
+                                )}
                               </div>
                             </div>
                           );
