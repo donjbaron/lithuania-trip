@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import { FAMILIES, type WishlistItem } from "@/lib/types";
-import { deleteActivity, toggleInterest, updateActivity, setAllInterest, moveActivitiesToDay, unassignActivityDate } from "@/app/actions/activities";
+import { deleteActivity, toggleInterest, updateActivity, setAllInterest, moveActivitiesToDay, unassignActivityDate, reorderActivities } from "@/app/actions/activities";
 
 const CITIES = ["Vilnius", "Kaunas", "Trakai", "Klaipeda", "Siauliai", "Palanga", "Other"];
 const TRIP_DATES = [
@@ -95,13 +95,19 @@ function DragHandle() {
 function ActivityRow({
   item,
   isDragging,
+  insertAbove,
+  insertBelow,
   onDragStart,
   onDragEnd,
+  onDragOver,
 }: {
   item: WishlistItem;
   isDragging: boolean;
+  insertAbove: boolean;
+  insertBelow: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
+  onDragOver: (above: boolean) => void;
 }) {
   const [editing, setEditing] = useState(false);
 
@@ -139,10 +145,19 @@ function ActivityRow({
   }
 
   return (
+    <div className="relative">
+      {insertAbove && <div className="absolute top-0 left-0 right-0 h-0.5 bg-blue-400 z-10 rounded-full" />}
+      {insertBelow && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-400 z-10 rounded-full" />}
     <div
       draggable
       onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; onDragStart(); }}
       onDragEnd={onDragEnd}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const rect = e.currentTarget.getBoundingClientRect();
+        onDragOver(e.clientY < rect.top + rect.height / 2);
+      }}
       className={`flex divide-x divide-gray-100 transition-opacity ${isDragging ? "opacity-40" : ""}`}
     >
       <DragHandle />
@@ -221,6 +236,7 @@ function ActivityRow({
         </div>
       </div>
     </div>
+    </div>
   );
 }
 
@@ -245,7 +261,7 @@ function DayDropZone({
   return (
     <div
       onDragOver={(e) => { e.preventDefault(); onDragOver(); }}
-      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) onDragLeave(); }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) { onDragLeave(); setInsertBefore(null); } }}
       onDrop={(e) => { e.preventDefault(); onDrop(); }}
       className={`rounded-xl border shadow-sm divide-y divide-gray-100 transition-all ${
         isOver
@@ -268,6 +284,8 @@ function DayDropZone({
 export default function ActivityList({ items }: { items: WishlistItem[] }) {
   const [dragId, setDragId] = useState<number | null>(null);
   const [dragOverDate, setDragOverDate] = useState<string | "unassigned" | null>(null);
+  // insertBefore: id of item to insert before, or "end" to append, or null (no indicator)
+  const [insertBefore, setInsertBefore] = useState<number | "end" | null>(null);
 
   const dated = Object.keys(DATE_LABEL).sort();
   const allDayGroups = dated.map((date) => ({
@@ -288,14 +306,34 @@ export default function ActivityList({ items }: { items: WishlistItem[] }) {
     if (dragId === null) return;
     const activity = items.find((i) => i.id === dragId);
     const currentDate = activity?.activity_date ?? null;
-    if (currentDate === targetDate) { setDragId(null); setDragOverDate(null); return; }
-    if (targetDate === null) {
+
+    if (currentDate === targetDate) {
+      // Same day — reorder
+      const dayItems = items.filter((i) => i.activity_date === targetDate);
+      const withoutDragged = dayItems.filter((i) => i.id !== dragId);
+      let newOrder: number[];
+      if (insertBefore === null || insertBefore === "end") {
+        newOrder = [...withoutDragged.map((i) => i.id), dragId];
+      } else {
+        const idx = withoutDragged.findIndex((i) => i.id === insertBefore);
+        if (idx === -1) {
+          newOrder = [...withoutDragged.map((i) => i.id), dragId];
+        } else {
+          const ids = withoutDragged.map((i) => i.id);
+          ids.splice(idx, 0, dragId);
+          newOrder = ids;
+        }
+      }
+      await reorderActivities(newOrder);
+    } else if (targetDate === null) {
       await unassignActivityDate(dragId);
     } else {
       await moveActivitiesToDay([dragId], targetDate);
     }
+
     setDragId(null);
     setDragOverDate(null);
+    setInsertBefore(null);
   }
 
   if (items.length === 0) {
@@ -352,13 +390,24 @@ export default function ActivityList({ items }: { items: WishlistItem[] }) {
               onDrop={() => handleDrop(date)}
               isEmpty={activities.length === 0}
             >
-              {activities.map((item) => (
+              {activities.map((item, idx) => (
                 <ActivityRow
                   key={item.id}
                   item={item}
                   isDragging={dragId === item.id}
-                  onDragStart={() => setDragId(item.id)}
-                  onDragEnd={() => { setDragId(null); setDragOverDate(null); }}
+                  insertAbove={insertBefore === item.id && dragId !== item.id}
+                  insertBelow={insertBefore === "end" && idx === activities.length - 1 && dragOverDate === date && dragId !== null}
+                  onDragStart={() => { setDragId(item.id); setDragOverDate(date); }}
+                  onDragEnd={() => { setDragId(null); setDragOverDate(null); setInsertBefore(null); }}
+                  onDragOver={(above) => {
+                    setDragOverDate(date);
+                    if (above) {
+                      setInsertBefore(item.id);
+                    } else {
+                      const next = activities[idx + 1];
+                      setInsertBefore(next ? next.id : "end");
+                    }
+                  }}
                 />
               ))}
             </DayDropZone>
@@ -384,13 +433,24 @@ export default function ActivityList({ items }: { items: WishlistItem[] }) {
             onDrop={() => handleDrop(null)}
             isEmpty={undated.length === 0}
           >
-            {undated.map((item) => (
+            {undated.map((item, idx) => (
               <ActivityRow
                 key={item.id}
                 item={item}
                 isDragging={dragId === item.id}
-                onDragStart={() => setDragId(item.id)}
-                onDragEnd={() => { setDragId(null); setDragOverDate(null); }}
+                insertAbove={insertBefore === item.id && dragId !== item.id}
+                insertBelow={insertBefore === "end" && idx === undated.length - 1 && dragOverDate === "unassigned" && dragId !== null}
+                onDragStart={() => { setDragId(item.id); setDragOverDate("unassigned"); }}
+                onDragEnd={() => { setDragId(null); setDragOverDate(null); setInsertBefore(null); }}
+                onDragOver={(above) => {
+                  setDragOverDate("unassigned");
+                  if (above) {
+                    setInsertBefore(item.id);
+                  } else {
+                    const next = undated[idx + 1];
+                    setInsertBefore(next ? next.id : "end");
+                  }
+                }}
               />
             ))}
           </DayDropZone>

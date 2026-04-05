@@ -190,6 +190,13 @@ export async function unassignActivityDate(id: number) {
   revalidate();
 }
 
+export async function reorderActivities(orderedIds: number[]) {
+  for (let i = 0; i < orderedIds.length; i++) {
+    await dbRun("UPDATE wishlist_items SET sort_order = ? WHERE id = ?", [i, orderedIds[i]]);
+  }
+  revalidate();
+}
+
 export async function backfillActivityAddresses() {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   if (!apiKey) return { updated: 0 };
