@@ -950,9 +950,11 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                     {(() => {
                       let stopIdx = 0;
                       const dragHandle = (
-                        <svg className="w-4 h-4 text-gray-300 shrink-0 pointer-events-none" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M8 6a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 14a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 22a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4z"/>
-                        </svg>
+                        <div data-drag-handle className="cursor-grab active:cursor-grabbing shrink-0 px-1 py-2 -mx-1 -my-1 touch-none">
+                          <svg className="w-4 h-4 text-gray-300" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M8 6a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 14a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 22a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4z"/>
+                          </svg>
+                        </div>
                       );
                       function TravelLeg({ leg }: { leg: { duration: string; mode: "walk" | "drive" } }) {
                         return (
@@ -972,6 +974,10 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                         return {
                           draggable: true as const,
                           onDragStart(e: React.DragEvent) {
+                            if (!(e.target as HTMLElement).closest('[data-drag-handle]')) {
+                              e.preventDefault();
+                              return;
+                            }
                             e.dataTransfer.setData("text/plain", key);
                             e.dataTransfer.effectAllowed = "move";
                             setTimeout(() => setSlotDragKey(key), 0);
@@ -1021,7 +1027,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                               {showInsert && <div className="h-0.5 bg-blue-500 mx-4" />}
                               <div
                                 {...dragProps(key)}
-                                className={`px-4 py-3 flex items-center gap-3 select-none cursor-grab active:cursor-grabbing transition-opacity bg-indigo-50/40 ${isDragging ? "opacity-40" : ""}`}
+                                className={`px-4 py-3 flex items-center gap-3 select-none transition-opacity bg-indigo-50/40 ${isDragging ? "opacity-40" : ""}`}
                               >
                                 <span className="text-xs font-bold text-indigo-500 w-16 shrink-0 pointer-events-none">{slot.time}</span>
                                 {dragHandle}
@@ -1047,7 +1053,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                             {showInsert && <div className="h-0.5 bg-blue-500 mx-4" />}
                             <div
                               {...(draggable ? dragProps(key) : {})}
-                              className={`px-4 py-3 flex items-center gap-3 select-none cursor-grab active:cursor-grabbing transition-opacity ${isDragging ? "opacity-40" : isSkipped ? "opacity-40 bg-gray-50" : "bg-amber-50/40"}`}
+                              className={`px-4 py-3 flex items-center gap-3 select-none transition-opacity ${isDragging ? "opacity-40" : isSkipped ? "opacity-40 bg-gray-50" : "bg-amber-50/40"}`}
                             >
                               <span className="text-xs font-bold text-amber-600 w-16 shrink-0 pointer-events-none">{time}</span>
                               {dragHandle}
@@ -1114,6 +1120,10 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                           <div
                             draggable
                             onDragStart={(e) => {
+                              if (!(e.target as HTMLElement).closest('[data-drag-handle]')) {
+                                e.preventDefault();
+                                return;
+                              }
                               e.dataTransfer.setData("text/plain", String(a.id));
                               e.dataTransfer.effectAllowed = "move";
                               setTimeout(() => setNormalDragId(a.id), 0);
@@ -1139,11 +1149,13 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                               setNormalDragId(null);
                               setNormalInsertBefore(null);
                             }}
-                            className={`px-4 py-3 flex items-center gap-3 select-none cursor-grab active:cursor-grabbing transition-opacity ${isDragging ? "opacity-40" : isSkipped ? "opacity-40 bg-gray-50" : isPinned ? "bg-amber-50" : "hover:bg-gray-50"}`}
+                            className={`px-4 py-3 flex items-center gap-3 select-none transition-opacity ${isDragging ? "opacity-40" : isSkipped ? "opacity-40 bg-gray-50" : isPinned ? "bg-amber-50" : "hover:bg-gray-50"}`}
                           >
-                            <svg className="w-4 h-4 text-gray-300 shrink-0 pointer-events-none" fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M8 6a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 14a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 22a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4z"/>
-                            </svg>
+                            <div data-drag-handle className="cursor-grab active:cursor-grabbing shrink-0 px-1 py-2 -mx-1 -my-1 touch-none">
+                              <svg className="w-4 h-4 text-gray-300" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M8 6a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 14a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 22a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4z"/>
+                              </svg>
+                            </div>
                             {/* Skip checkbox */}
                             <button
                               draggable={false}
@@ -1262,6 +1274,16 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                 );
               }
 
+              function walkMins(fromLat: number, fromLng: number, toLat: number | null, toLng: number | null): number | null {
+                if (toLat == null || toLng == null) return null;
+                const R = 6371000;
+                const dLat = (toLat - fromLat) * Math.PI / 180;
+                const dLng = (toLng - fromLng) * Math.PI / 180;
+                const a = Math.sin(dLat / 2) ** 2 + Math.cos(fromLat * Math.PI / 180) * Math.cos(toLat * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+                const dist = 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                return Math.max(1, Math.round(dist / 80));
+              }
+
               function MealSlot({ meal, label, assigned, options }: {
                 meal: "lunch" | "dinner";
                 label: string;
@@ -1270,7 +1292,15 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
               }) {
                 const refLoc = getRefLocation(meal);
                 const isSearchingThis = restaurantSearching === meal;
-                const thisSuggestions = restaurantSuggestions?.meal === meal ? restaurantSuggestions.results : [];
+                const rawSuggestions = restaurantSuggestions?.meal === meal ? restaurantSuggestions.results : [];
+                // Sort by walking distance from the pre-meal activity, shortest first
+                const thisSuggestions = refLoc
+                  ? [...rawSuggestions].sort((a, b) => {
+                      const da = walkMins(refLoc.lat, refLoc.lng, a.lat, a.lng) ?? 9999;
+                      const db = walkMins(refLoc.lat, refLoc.lng, b.lat, b.lng) ?? 9999;
+                      return da - db;
+                    })
+                  : rawSuggestions;
 
                 return (
                   <div className="px-4 py-3 space-y-2">
@@ -1315,38 +1345,44 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                         <p className="px-3 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50">
                           Nearby restaurants — click to add &amp; assign
                         </p>
-                        {thisSuggestions.map((p, i) => (
-                          <button
-                            key={i}
-                            type="button"
-                            onClick={() => {
-                              addAndAssignRestaurant(p.name, p.address || null, p.lat, p.lng, p.url || null, city, p.cuisine, date, meal);
-                              setRestaurantSuggestions(null);
-                            }}
-                            className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 transition-colors"
-                          >
-                            <p className="text-sm font-medium text-gray-800">{p.name}</p>
-                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                              {p.rating != null && (
-                                <span className="text-xs text-amber-600 font-medium flex items-center gap-0.5">
-                                  <svg className="w-3 h-3 fill-amber-400" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
-                                  {p.rating.toFixed(1)}
-                                </span>
-                              )}
-                              {p.priceLevel != null && (
-                                <span className="text-xs text-green-700 font-medium">
-                                  {"$".repeat(p.priceLevel + 1)}
-                                </span>
-                              )}
-                              {p.cuisine && (
-                                <span className="text-xs text-gray-400">{p.cuisine}</span>
-                              )}
-                              {p.address && (
-                                <span className="text-xs text-gray-400 truncate">{p.address}</span>
-                              )}
-                            </div>
-                          </button>
-                        ))}
+                        {thisSuggestions.map((p, i) => {
+                          const mins = refLoc ? walkMins(refLoc.lat, refLoc.lng, p.lat, p.lng) : null;
+                          return (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => {
+                                addAndAssignRestaurant(p.name, p.address || null, p.lat, p.lng, p.url || null, city, p.cuisine, date, meal);
+                                setRestaurantSuggestions(null);
+                              }}
+                              className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 transition-colors"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-sm font-medium text-gray-800">{p.name}</p>
+                                {mins != null && (
+                                  <span className="text-xs text-blue-500 font-medium whitespace-nowrap shrink-0">{mins} min walk</span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                {p.cuisine && (
+                                  <span className="text-xs text-indigo-600 font-medium">{p.cuisine}</span>
+                                )}
+                                {p.rating != null && (
+                                  <span className="text-xs text-amber-600 font-medium flex items-center gap-0.5">
+                                    <svg className="w-3 h-3 fill-amber-400" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                                    {p.rating.toFixed(1)}
+                                  </span>
+                                )}
+                                {p.priceLevel != null && (
+                                  <span className="text-xs text-green-700 font-medium">{"$".repeat(p.priceLevel + 1)}</span>
+                                )}
+                                {p.address && (
+                                  <span className="text-xs text-gray-400 truncate">{p.address}</span>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
                         <button
                           type="button"
                           onClick={() => setRestaurantSuggestions(null)}
