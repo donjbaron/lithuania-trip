@@ -108,6 +108,8 @@ export default function GoogleDayMap({ hotels, activities, routeIds }: { hotels:
   const markersRef = useRef<any[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const polylineRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const directionsRendererRef = useRef<any>(null);
 
   const drawMarkers = useCallback(async () => {
     const map = mapRef.current;
@@ -116,6 +118,7 @@ export default function GoogleDayMap({ hotels, activities, routeIds }: { hotels:
     markersRef.current.forEach((m) => m.setMap(null));
     markersRef.current = [];
     if (polylineRef.current) { polylineRef.current.setMap(null); polylineRef.current = null; }
+    if (directionsRendererRef.current) { directionsRendererRef.current.setMap(null); directionsRendererRef.current = null; }
 
     const validHotels = hotels.filter((h) => h.lat != null && h.lng != null);
 
@@ -345,35 +348,64 @@ export default function GoogleDayMap({ hotels, activities, routeIds }: { hotels:
       map.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 });
     }
 
-    // Draw route polyline if an ordered list of activity IDs is provided
+    // Draw route if an ordered list of activity IDs is provided
     if (routeIds.length > 1) {
       const path = routeIds
         .map((id) => activityPositions.get(id))
         .filter(Boolean) as { lat: number; lng: number }[];
+
       if (path.length > 1) {
-        polylineRef.current = new window.google.maps.Polyline({
-          path,
+        const origin = path[0];
+        const destination = path[path.length - 1];
+        const waypoints = path.slice(1, -1).map((p) => ({
+          location: new window.google.maps.LatLng(p.lat, p.lng),
+          stopover: true,
+        }));
+
+        const renderer = new window.google.maps.DirectionsRenderer({
           map,
-          geodesic: true,
-          strokeColor: "#1D4ED8",
-          strokeOpacity: 0.7,
-          strokeWeight: 4,
-          icons: [
-            {
-              icon: {
-                path: window.google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-                scale: 4,
-                strokeColor: "#fff",
-                strokeWeight: 1.5,
-                fillColor: "#1D4ED8",
-                fillOpacity: 1,
-                strokeOpacity: 1,
-              },
-              offset: "50%",
-              repeat: "80px",
-            },
-          ],
+          suppressMarkers: true,
+          preserveViewport: true,
+          polylineOptions: {
+            strokeColor: "#1D4ED8",
+            strokeOpacity: 0.75,
+            strokeWeight: 5,
+          },
         });
+        directionsRendererRef.current = renderer;
+
+        new window.google.maps.DirectionsService().route(
+          {
+            origin,
+            destination,
+            waypoints,
+            travelMode: window.google.maps.TravelMode.DRIVING,
+            optimizeWaypoints: false,
+          },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (result: any, status: string) => {
+            if (status === "OK") {
+              renderer.setDirections(result);
+            } else {
+              // Fallback: straight-line dashed polyline
+              renderer.setMap(null);
+              directionsRendererRef.current = null;
+              polylineRef.current = new window.google.maps.Polyline({
+                path,
+                map,
+                geodesic: true,
+                strokeColor: "#1D4ED8",
+                strokeOpacity: 0.7,
+                strokeWeight: 4,
+                icons: [{
+                  icon: { path: window.google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 4, strokeColor: "#fff", strokeWeight: 1.5, fillColor: "#1D4ED8", fillOpacity: 1 },
+                  offset: "50%",
+                  repeat: "80px",
+                }],
+              });
+            }
+          }
+        );
       }
     }
   }, [hotels, activities, routeIds]);
@@ -413,6 +445,7 @@ export default function GoogleDayMap({ hotels, activities, routeIds }: { hotels:
       markersRef.current.forEach((m) => m.setMap(null));
       markersRef.current = [];
       if (polylineRef.current) { polylineRef.current.setMap(null); polylineRef.current = null; }
+      if (directionsRendererRef.current) { directionsRendererRef.current.setMap(null); directionsRendererRef.current = null; }
       mapRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps

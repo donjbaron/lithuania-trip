@@ -249,6 +249,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
   const [normalInsertBefore, setNormalInsertBefore] = useState<number | "end" | null>(null);
   const [localActivityOrder, setLocalActivityOrder] = useState<number[] | null>(null);
   const [orderSaved, setOrderSaved] = useState(false);
+  const [skippedActivityIds, setSkippedActivityIds] = useState<Set<number>>(new Set());
   const autoSuggestRef = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -288,6 +289,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     setBusySuggestion(null);
     setLocalActivityOrder(null);
     setOrderSaved(false);
+    setSkippedActivityIds(new Set());
 
     if (!selectedDate) return;
 
@@ -371,7 +373,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     }
 
     const isArrivalDay = selectedDay?.trip_date === "2026-07-31";
-    const { timed, slots, excess } = buildDayItinerary(activitiesForDay, isArrivalDay, selectedDay?.trip_date ?? "");
+    const { timed, slots, excess } = buildDayItinerary(activitiesForDay.filter(a => !skippedActivityIds.has(a.id)), isArrivalDay, selectedDay?.trip_date ?? "");
     const idx = days.findIndex((d) => d.trip_date === selectedDay?.trip_date);
     const nextDay = idx >= 0 && idx < days.length - 1 ? days[idx + 1] : null;
 
@@ -593,20 +595,21 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                   )}
                   <button
                     onClick={() => {
-                      const isTransit = (a: WishlistItem) =>
+                      const exclude = (a: WishlistItem) =>
+                        skippedActivityIds.has(a.id) ||
                         /\b(arriv|depart|flight|transfer|check.?in|check.?out|train|bus)\b/i.test(a.title);
                       let ids: number[];
                       if (itinerarySuggested) {
                         ids = itinerarySlots
                           .filter((s) => s.type === "activity")
                           .map((s) => (s as Extract<typeof s, { type: "activity" }>).activity)
-                          .filter((a) => !isTransit(a))
+                          .filter((a) => !exclude(a))
                           .map((a) => a.id);
                       } else {
                         const ordered = localActivityOrder
                           ? localActivityOrder.map((id) => activitiesForDay.find((a) => a.id === id)!).filter(Boolean)
                           : activitiesForDay;
-                        ids = ordered.filter((a) => !isTransit(a)).map((a) => a.id);
+                        ids = ordered.filter((a) => !exclude(a)).map((a) => a.id);
                       }
                       setRouteIds(ids);
                       setSelectedActivityIds(new Set(ids));
@@ -676,6 +679,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                       const { activity, time } = slot;
                       const interested = FAMILIES.filter((f) => activity[FAMILY_INTEREST[f.key]] as number);
                       const isDragging = slotDragId === activity.id;
+                      const isSkipped = skippedActivityIds.has(activity.id);
                       const showInsert = slotInsertBefore === activity.id && slotDragId !== activity.id;
                       return (
                         <div key={activity.id}>
@@ -722,13 +726,23 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                               const excessIds = activitiesForDay.filter(a => !newIds.includes(a.id)).map(a => a.id);
                               reorderActivities([...newIds, ...excessIds]);
                             }}
-                            className={`px-4 py-3 flex items-center gap-3 select-none cursor-grab active:cursor-grabbing transition-opacity ${isDragging ? "opacity-40" : "bg-amber-50/40"}`}
+                            className={`px-4 py-3 flex items-center gap-3 select-none cursor-grab active:cursor-grabbing transition-opacity ${isDragging ? "opacity-40" : isSkipped ? "opacity-40 bg-gray-50" : "bg-amber-50/40"}`}
                           >
                             <span className="text-xs font-bold text-amber-600 w-16 shrink-0 pointer-events-none">{time}</span>
                             {/* drag handle */}
                             <svg className="w-4 h-4 text-gray-300 shrink-0 pointer-events-none" fill="currentColor" viewBox="0 0 24 24">
                               <path d="M8 6a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 14a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 22a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4z"/>
                             </svg>
+                            {/* Skip checkbox */}
+                            <button
+                              draggable={false}
+                              type="button"
+                              title={isSkipped ? "Include" : "Skip"}
+                              onClick={() => setSkippedActivityIds(prev => { const n = new Set(prev); isSkipped ? n.delete(activity.id) : n.add(activity.id); return n; })}
+                              className={`shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${isSkipped ? "bg-gray-200 border-gray-400" : "border-gray-300 hover:border-gray-500"}`}
+                            >
+                              {isSkipped && <svg className="w-3 h-3 text-gray-500 pointer-events-none" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 12 12"><path strokeLinecap="round" d="M2 6h8"/></svg>}
+                            </button>
                             <button
                               draggable={false}
                               type="button"
@@ -741,7 +755,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                                 </div>
                               )}
                               <div className="flex-1 min-w-0 pointer-events-none">
-                                <p className="text-sm font-semibold text-gray-800 hover:underline">{activity.title}</p>
+                                <p className={`text-sm font-semibold hover:underline ${isSkipped ? "line-through text-gray-400" : "text-gray-800"}`}>{activity.title}</p>
                                 {activity.address && <p className="text-xs text-gray-400 truncate mt-0.5">{activity.address}</p>}
                               </div>
                             </button>
@@ -768,6 +782,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                       : activitiesForDay
                     ).map((a) => {
                       const isPinned = selectedActivityIds.has(a.id);
+                      const isSkipped = skippedActivityIds.has(a.id);
                       const interested = FAMILIES.filter((f) => a[FAMILY_INTEREST[f.key]] as number);
                       const isDragging = normalDragId === a.id;
                       const showInsert = normalInsertBefore === a.id && normalDragId !== a.id;
@@ -802,21 +817,20 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                               setNormalDragId(null);
                               setNormalInsertBefore(null);
                             }}
-                            className={`px-4 py-3 flex items-center gap-3 select-none cursor-grab active:cursor-grabbing transition-opacity ${isDragging ? "opacity-40" : isPinned ? "bg-amber-50" : "hover:bg-gray-50"}`}
+                            className={`px-4 py-3 flex items-center gap-3 select-none cursor-grab active:cursor-grabbing transition-opacity ${isDragging ? "opacity-40" : isSkipped ? "opacity-40 bg-gray-50" : isPinned ? "bg-amber-50" : "hover:bg-gray-50"}`}
                           >
                             <svg className="w-4 h-4 text-gray-300 shrink-0 pointer-events-none" fill="currentColor" viewBox="0 0 24 24">
                               <path d="M8 6a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 14a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 22a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4z"/>
                             </svg>
+                            {/* Skip checkbox */}
                             <button
                               draggable={false}
                               type="button"
-                              onClick={() => toggleActivity(a.id)}
-                              className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-colors ${isPinned ? "bg-amber-500 text-white" : "bg-gray-100 text-gray-400 hover:bg-amber-100"}`}
-                              title="Toggle on map"
+                              title={isSkipped ? "Include" : "Skip"}
+                              onClick={() => setSkippedActivityIds(prev => { const n = new Set(prev); isSkipped ? n.delete(a.id) : n.add(a.id); return n; })}
+                              className={`shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${isSkipped ? "bg-gray-200 border-gray-400" : "border-gray-300 hover:border-gray-500"}`}
                             >
-                              <svg className="w-3.5 h-3.5 pointer-events-none" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
-                              </svg>
+                              {isSkipped && <svg className="w-3 h-3 text-gray-500 pointer-events-none" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 12 12"><path strokeLinecap="round" d="M2 6h8"/></svg>}
                             </button>
                             <button
                               draggable={false}
@@ -830,7 +844,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                                 </div>
                               )}
                               <div className="flex-1 min-w-0 pointer-events-none">
-                                <p className={`text-sm font-semibold hover:underline ${isPinned ? "text-amber-900" : "text-gray-800"}`}>{a.title}</p>
+                                <p className={`text-sm font-semibold hover:underline ${isSkipped ? "line-through text-gray-400" : isPinned ? "text-amber-900" : "text-gray-800"}`}>{a.title}</p>
                                 {a.address && <p className="text-xs text-gray-400 truncate mt-0.5">{a.address}</p>}
                               </div>
                             </button>
