@@ -244,8 +244,8 @@ function recomputeSlotTimes(
   return slots.map(slot => {
     if (slot.type === "meal" && !(slot as Extract<ItinerarySlot, {type:"meal"}>).restaurant) return slot;
     const hasCoords = slot.type === "activity"
-      ? ((slot as Extract<ItinerarySlot, {type:"activity"}>).activity.lat != null)
-      : ((slot as Extract<ItinerarySlot, {type:"meal"}>).restaurant?.lat != null);
+      ? ((slot as Extract<ItinerarySlot, {type:"activity"}>).activity.lat != null || !!((slot as Extract<ItinerarySlot, {type:"activity"}>).activity.address))
+      : ((slot as Extract<ItinerarySlot, {type:"meal"}>).restaurant?.lat != null || !!((slot as Extract<ItinerarySlot, {type:"meal"}>).restaurant?.address));
     const travel = (hasCoords && stopIdx > 0) ? parseLegMins(legs[stopIdx - 1] ?? null) : 0;
     if (hasCoords) stopIdx++;
     const startMins = (prevEndMins === null ? anchorMins : prevEndMins) + travel;
@@ -501,10 +501,18 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
   }
   function slotsToStops(slots: ItinerarySlot[]) {
     return slots.flatMap(s => {
-      if (s.type === "activity" && s.activity.lat != null && s.activity.lng != null)
-        return [{ lat: s.activity.lat, lng: s.activity.lng }];
-      if (s.type === "meal" && s.restaurant?.lat != null && s.restaurant.lng != null)
-        return [{ lat: s.restaurant.lat, lng: s.restaurant.lng }];
+      if (s.type === "activity") {
+        const a = s.activity;
+        if (a.lat != null && a.lng != null) return [{ lat: a.lat, lng: a.lng, address: a.address ?? null }];
+        if (a.address) return [{ lat: null, lng: null, address: a.address }];
+        return [];
+      }
+      if (s.type === "meal" && s.restaurant) {
+        const r = s.restaurant;
+        if (r.lat != null && r.lng != null) return [{ lat: r.lat, lng: r.lng, address: r.address ?? null }];
+        if (r.address) return [{ lat: null, lng: null, address: r.address }];
+        return [];
+      }
       return [];
     });
   }
@@ -530,17 +538,22 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     reorderActivities([...actOrder, ...excessIds]);
   }
 
-  async function calcLegs(stops: { lat: number | null; lng: number | null }[]) {
+  async function calcLegs(stops: { lat: number | null; lng: number | null; address?: string | null }[]) {
     const empty = new Array(Math.max(0, stops.length - 1)).fill(null);
     if (stops.length < 2) { setTravelLegs(empty); return; }
 
     const validPairs = stops
       .slice(0, -1)
       .map((a, i) => ({ a, b: stops[i + 1], i }))
-      .filter(p => p.a.lat != null && p.a.lng != null && p.b.lat != null && p.b.lng != null);
+      .filter(p => (p.a.lat != null && p.a.lng != null) || p.a.address)
+      .filter(p => (p.b.lat != null && p.b.lng != null) || p.b.address);
 
     const legs = [...empty];
     if (validPairs.length === 0) { setTravelLegs(legs); return; }
+
+    function toWaypoint(s: { lat: number | null; lng: number | null; address?: string | null }) {
+      return s.lat != null && s.lng != null ? { lat: s.lat, lng: s.lng } : s.address!;
+    }
 
     try {
       await loadGoogleMapsWithPlaces();
@@ -549,8 +562,8 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
       await new Promise<void>((resolve) => {
         new g.maps.DistanceMatrixService().getDistanceMatrix(
           {
-            origins: validPairs.map(p => ({ lat: p.a.lat!, lng: p.a.lng! })),
-            destinations: validPairs.map(p => ({ lat: p.b.lat!, lng: p.b.lng! })),
+            origins: validPairs.map(p => toWaypoint(p.a)),
+            destinations: validPairs.map(p => toWaypoint(p.b)),
             travelMode: g.maps.TravelMode.DRIVING,
             unitSystem: g.maps.UnitSystem.METRIC,
           },
@@ -616,8 +629,18 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
 
     // Build combined stop list: activities + restaurants in slot order
     const stops = enrichedSlots.flatMap(s => {
-      if (s.type === "activity") return [{ lat: s.activity.lat, lng: s.activity.lng }];
-      if (s.type === "meal" && s.restaurant) return [{ lat: s.restaurant.lat, lng: s.restaurant.lng }];
+      if (s.type === "activity") {
+        const a = s.activity;
+        if (a.lat != null && a.lng != null) return [{ lat: a.lat, lng: a.lng, address: a.address ?? null }];
+        if (a.address) return [{ lat: null, lng: null, address: a.address }];
+        return [];
+      }
+      if (s.type === "meal" && s.restaurant) {
+        const r = s.restaurant;
+        if (r.lat != null && r.lng != null) return [{ lat: r.lat, lng: r.lng, address: r.address ?? null }];
+        if (r.address) return [{ lat: null, lng: null, address: r.address }];
+        return [];
+      }
       return [];
     });
 
@@ -1083,7 +1106,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                                 <div className="flex-1 min-w-0 pointer-events-none">
                                   <p className={`text-sm font-semibold hover:underline ${isSkipped ? "line-through text-gray-400" : "text-gray-800"}`}>{activity.title}</p>
                                   {activity.address && <p className="text-xs text-gray-400 truncate mt-0.5">{activity.address}</p>}
-                                  {activity.lat == null && <p className="text-xs text-amber-500 mt-0.5">{activity.address ? "No coordinates — not included in route" : "Address missing — not included in route"}</p>}
+                                  {activity.lat == null && !activity.address && <p className="text-xs text-amber-500 mt-0.5">Address missing — not included in route</p>}
                                 </div>
                               </button>
                               <div className="flex flex-col items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
@@ -1188,7 +1211,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                               <div className="flex-1 min-w-0 pointer-events-none">
                                 <p className={`text-sm font-semibold hover:underline ${isSkipped ? "line-through text-gray-400" : isPinned ? "text-amber-900" : "text-gray-800"}`}>{a.title}</p>
                                 {a.address && <p className="text-xs text-gray-400 truncate mt-0.5">{a.address}</p>}
-                                {a.lat == null && <p className="text-xs text-amber-500 mt-0.5">{a.address ? "No coordinates — not included in route" : "Address missing — not included in route"}</p>}
+                                {a.lat == null && !a.address && <p className="text-xs text-amber-500 mt-0.5">Address missing — not included in route</p>}
                               </div>
                             </button>
                             <div className="flex flex-col items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
