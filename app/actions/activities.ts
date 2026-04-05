@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { dbGet, dbRun } from "@/lib/db";
+import { dbAll, dbGet, dbRun } from "@/lib/db";
 
 function revalidate() {
   revalidatePath("/activities", "layout");
@@ -70,11 +70,13 @@ export async function addActivity(formData: FormData) {
   ]);
   const imageUrl = ogImage ?? wikiData.imageUrl;
   const wikiUrl = wikiData.url;
+  const latStr = formData.get("lat") as string;
+  const lngStr = formData.get("lng") as string;
   await dbRun(
     `INSERT INTO wishlist_items
        (title, location, url, city, activity_date, time_slot,
-        interested_family1, interested_family2, interested_family3, image_url, address)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        interested_family1, interested_family2, interested_family3, image_url, wiki_url, address, lat, lng)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       name,
       (formData.get("location") as string) || null,
@@ -86,7 +88,10 @@ export async function addActivity(formData: FormData) {
       formData.get("interested_family2") === "on" ? 1 : 0,
       formData.get("interested_family3") === "on" ? 1 : 0,
       imageUrl,
+      wikiUrl,
       (formData.get("address") as string) || null,
+      latStr ? parseFloat(latStr) : null,
+      lngStr ? parseFloat(lngStr) : null,
     ]
   );
   revalidate();
@@ -178,4 +183,42 @@ export async function moveActivitiesToDay(ids: number[], newDate: string) {
     await dbRun("UPDATE wishlist_items SET activity_date = ? WHERE id = ?", [newDate, id]);
   }
   revalidate();
+}
+
+export async function backfillActivityAddresses() {
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  if (!apiKey) return { updated: 0 };
+
+  const items = await dbAll<{ id: number; title: string; city: string | null }>(
+    "SELECT id, title, city FROM wishlist_items WHERE (address IS NULL OR address = '') OR (lat IS NULL OR lng IS NULL)"
+  );
+
+  let updated = 0;
+  for (const item of items) {
+    try {
+      const query = encodeURIComponent(`${item.title}${item.city ? " " + item.city : ""} Lithuania`);
+      const res = await fetch(
+        `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${query}&key=${apiKey}`,
+        { signal: AbortSignal.timeout(5000) }
+      );
+      const data = await res.json();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const place = data?.results?.[0] as any;
+      if (!place) continue;
+
+      await dbRun(
+        "UPDATE wishlist_items SET address=?, lat=?, lng=? WHERE id=?",
+        [
+          place.formatted_address ?? null,
+          place.geometry?.location?.lat ?? null,
+          place.geometry?.location?.lng ?? null,
+          item.id,
+        ]
+      );
+      updated++;
+    } catch { /* ignore per-item errors */ }
+  }
+
+  revalidate();
+  return { updated };
 }
