@@ -245,6 +245,10 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
   const [detailActivity, setDetailActivity] = useState<WishlistItem | null>(null);
   const [slotDragId, setSlotDragId] = useState<number | null>(null);
   const [slotInsertBefore, setSlotInsertBefore] = useState<number | "end" | null>(null);
+  const [normalDragId, setNormalDragId] = useState<number | null>(null);
+  const [normalInsertBefore, setNormalInsertBefore] = useState<number | "end" | null>(null);
+  const [localActivityOrder, setLocalActivityOrder] = useState<number[] | null>(null);
+  const [orderSaved, setOrderSaved] = useState(false);
   const autoSuggestRef = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -282,6 +286,8 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     setItinerarySlots([]);
     setRouteIds([]);
     setBusySuggestion(null);
+    setLocalActivityOrder(null);
+    setOrderSaved(false);
 
     if (!selectedDate) return;
 
@@ -572,7 +578,19 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
               <div className="bg-white rounded-xl border border-gray-200">
                 <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 rounded-t-xl flex flex-wrap items-center gap-2">
                   <h3 className="font-semibold text-gray-800 text-sm mr-auto">Activities</h3>
-                  {!itinerarySuggested && (
+                  {!itinerarySuggested && localActivityOrder && (
+                    <button
+                      onClick={async () => {
+                        await reorderActivities(localActivityOrder);
+                        setOrderSaved(true);
+                        setTimeout(() => setOrderSaved(false), 2000);
+                      }}
+                      className="text-xs font-semibold px-2.5 py-1 rounded-full bg-green-600 text-white hover:bg-green-700 transition-colors"
+                    >
+                      {orderSaved ? "Saved ✓" : "Save order"}
+                    </button>
+                  )}
+                  {!itinerarySuggested && !localActivityOrder && (
                     <>
                       <span className="text-xs text-gray-400">
                         {selectedActivityIds.size > 0 ? `${selectedActivityIds.size} on map` : "tap to map"}
@@ -736,52 +754,93 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                     {slotInsertBefore === "end" && slotDragId !== null && <div className="h-0.5 bg-blue-500 mx-4" />}
                   </div>
                 ) : (
-                  /* ── Normal activity list ── */
+                  /* ── Normal activity list (draggable) ── */
                   <div className="divide-y divide-gray-100">
-                    {activitiesForDay.map((a) => {
+                    {(localActivityOrder
+                      ? localActivityOrder.map((id) => activitiesForDay.find((a) => a.id === id)!).filter(Boolean)
+                      : activitiesForDay
+                    ).map((a) => {
                       const isPinned = selectedActivityIds.has(a.id);
                       const interested = FAMILIES.filter((f) => a[FAMILY_INTEREST[f.key]] as number);
+                      const isDragging = normalDragId === a.id;
+                      const showInsert = normalInsertBefore === a.id && normalDragId !== a.id;
                       return (
-                        <div key={a.id}
-                          className={`px-4 py-3 flex items-center gap-3 transition-colors ${isPinned ? "bg-amber-50" : "hover:bg-gray-50"}`}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => toggleActivity(a.id)}
-                            className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-colors ${isPinned ? "bg-amber-500 text-white" : "bg-gray-100 text-gray-400 hover:bg-amber-100"}`}
-                            title="Toggle on map"
+                        <div key={a.id}>
+                          {showInsert && <div className="h-0.5 bg-blue-500 mx-4" />}
+                          <div
+                            draggable
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData("text/plain", String(a.id));
+                              e.dataTransfer.effectAllowed = "move";
+                              setTimeout(() => setNormalDragId(a.id), 0);
+                            }}
+                            onDragEnd={() => { setNormalDragId(null); setNormalInsertBefore(null); }}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              e.dataTransfer.dropEffect = "move";
+                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                              setNormalInsertBefore(e.clientY < rect.top + rect.height / 2 ? a.id : "end");
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              const draggedId = Number(e.dataTransfer.getData("text/plain"));
+                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                              const before = e.clientY < rect.top + rect.height / 2 ? a.id : null;
+                              const current = localActivityOrder ?? activitiesForDay.map((x) => x.id);
+                              const filtered = current.filter((id) => id !== draggedId);
+                              const targetIdx = before != null ? filtered.indexOf(before) : filtered.length;
+                              const newIds = [...filtered.slice(0, targetIdx), draggedId, ...filtered.slice(targetIdx)];
+                              setLocalActivityOrder(newIds);
+                              setOrderSaved(false);
+                              setNormalDragId(null);
+                              setNormalInsertBefore(null);
+                            }}
+                            className={`px-4 py-3 flex items-center gap-3 select-none cursor-grab active:cursor-grabbing transition-opacity ${isDragging ? "opacity-40" : isPinned ? "bg-amber-50" : "hover:bg-gray-50"}`}
                           >
-                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+                            <svg className="w-4 h-4 text-gray-300 shrink-0 pointer-events-none" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M8 6a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 14a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 22a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4z"/>
                             </svg>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDetailActivity(a)}
-                            className="flex items-center gap-3 flex-1 min-w-0 text-left"
-                          >
-                            {a.image_url && (
-                              <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0">
-                                <img src={a.image_url} alt="" className="w-full h-full object-cover" />
+                            <button
+                              draggable={false}
+                              type="button"
+                              onClick={() => toggleActivity(a.id)}
+                              className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-colors ${isPinned ? "bg-amber-500 text-white" : "bg-gray-100 text-gray-400 hover:bg-amber-100"}`}
+                              title="Toggle on map"
+                            >
+                              <svg className="w-3.5 h-3.5 pointer-events-none" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+                              </svg>
+                            </button>
+                            <button
+                              draggable={false}
+                              type="button"
+                              onClick={() => setDetailActivity(a)}
+                              className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                            >
+                              {a.image_url && (
+                                <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 pointer-events-none">
+                                  <img src={a.image_url} alt="" draggable={false} className="w-full h-full object-cover" />
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0 pointer-events-none">
+                                <p className={`text-sm font-semibold hover:underline ${isPinned ? "text-amber-900" : "text-gray-800"}`}>{a.title}</p>
+                                {a.address && <p className="text-xs text-gray-400 truncate mt-0.5">{a.address}</p>}
+                              </div>
+                            </button>
+                            {interested.length > 0 && (
+                              <div className="flex items-center gap-1 shrink-0 pointer-events-none">
+                                {interested.map((f) => (
+                                  <div key={f.key} className="w-5 h-5 rounded-full overflow-hidden border border-white shadow-sm">
+                                    <img src={`/families/${f.key}.png`} alt={f.label} draggable={false} className="w-full h-full object-cover" />
+                                  </div>
+                                ))}
                               </div>
                             )}
-                            <div className="flex-1 min-w-0">
-                              <p className={`text-sm font-semibold hover:underline ${isPinned ? "text-amber-900" : "text-gray-800"}`}>{a.title}</p>
-                              {a.address && <p className="text-xs text-gray-400 truncate mt-0.5">{a.address}</p>}
-                            </div>
-                          </button>
-                          {interested.length > 0 && (
-                            <div className="flex items-center gap-1 shrink-0">
-                              {interested.map((f) => (
-                                <div key={f.key} className="w-5 h-5 rounded-full overflow-hidden border border-white shadow-sm">
-                                  <img src={`/families/${f.key}.png`} alt={f.label} className="w-full h-full object-cover" />
-                                </div>
-                              ))}
-                            </div>
-                          )}
+                          </div>
                         </div>
                       );
                     })}
+                    {normalInsertBefore === "end" && normalDragId !== null && <div className="h-0.5 bg-blue-500 mx-4" />}
                   </div>
                 )}
               </div>
