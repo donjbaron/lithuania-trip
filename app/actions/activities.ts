@@ -190,6 +190,11 @@ export async function unassignActivityDate(id: number) {
   revalidate();
 }
 
+export async function updateActivityCoords(id: number, lat: number, lng: number) {
+  await dbRun("UPDATE wishlist_items SET lat = ?, lng = ? WHERE id = ?", [lat, lng, id]);
+  revalidate();
+}
+
 export async function updateActivityDuration(id: number, durationMins: number) {
   await dbRun("UPDATE wishlist_items SET duration_mins = ? WHERE id = ?", [durationMins, id]);
   revalidate();

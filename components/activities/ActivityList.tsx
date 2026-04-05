@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import Image from "next/image";
 import { FAMILIES, type WishlistItem } from "@/lib/types";
 import { deleteActivity, toggleInterest, updateActivity, setAllInterest, moveActivitiesToDay, unassignActivityDate, reorderActivities, updateActivityDuration } from "@/app/actions/activities";

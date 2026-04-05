@@ -13,7 +13,7 @@ import {
   CITY_COORDS,
 } from "@/lib/types";
 import { updateDay, saveItinerary } from "@/app/actions/itinerary";
-import { moveActivitiesToDay, reorderActivities, updateActivityDuration } from "@/app/actions/activities";
+import { moveActivitiesToDay, reorderActivities, updateActivityDuration, updateActivityCoords } from "@/app/actions/activities";
 import { assignRestaurantToDay, unassignRestaurant, addAndAssignRestaurant } from "@/app/actions/restaurants";
 import FamilySection from "./FamilySection";
 import DayItemRow from "./DayItemRow";
@@ -611,7 +611,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     setTravelLegs(legs);
   }
 
-  function suggestItinerary() {
+  async function suggestItinerary() {
     if (itinerarySuggested) {
       setItinerarySuggested(false);
       setItinerarySlots([]);
@@ -622,8 +622,38 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
       return;
     }
 
+    // Geocode any activities that have an address but no coordinates
+    const needsGeocode = activitiesForDay.filter(a => a.lat == null && a.address);
+    let geocodedActivities = activitiesForDay;
+    if (needsGeocode.length > 0) {
+      try {
+        await loadGoogleMapsWithPlaces();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const geocoder = new (window as any).google.maps.Geocoder();
+        const coordMap = new Map<number, { lat: number; lng: number }>();
+        await Promise.all(needsGeocode.map(a => new Promise<void>(resolve => {
+          geocoder.geocode({ address: a.address }, (res: any, status: string) => {
+            if (status === "OK" && res[0]) {
+              const loc = res[0].geometry.location;
+              coordMap.set(a.id, { lat: loc.lat(), lng: loc.lng() });
+            }
+            resolve();
+          });
+        })));
+        if (coordMap.size > 0) {
+          geocodedActivities = activitiesForDay.map(a =>
+            coordMap.has(a.id) ? { ...a, ...coordMap.get(a.id)! } : a
+          );
+          // Persist geocoded coords so future suggestions don't re-geocode
+          for (const [id, { lat, lng }] of coordMap) {
+            updateActivityCoords(id, lat, lng).catch(() => {});
+          }
+        }
+      } catch { /* fall back to city-coord approximation */ }
+    }
+
     const isArrivalDay = selectedDay?.trip_date === "2026-07-31";
-    const { timed, slots, excess } = buildDayItinerary(activitiesForDay.filter(a => !skippedActivityIds.has(a.id)), isArrivalDay, selectedDay?.trip_date ?? "");
+    const { timed, slots, excess } = buildDayItinerary(geocodedActivities.filter(a => !skippedActivityIds.has(a.id)), isArrivalDay, selectedDay?.trip_date ?? "");
     const idx = days.findIndex((d) => d.trip_date === selectedDay?.trip_date);
     const nextDay = idx >= 0 && idx < days.length - 1 ? days[idx + 1] : null;
 
