@@ -640,7 +640,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                       if (slot.type === "meal") {
                         const isSunset = slot.label === "Sunset";
                         return (
-                          <div key={i} className={`px-4 py-2 flex items-center gap-3 ${isSunset ? "bg-orange-50" : "bg-gray-50"}`}>
+                          <div key={`meal-${slot.label}`} className={`px-4 py-2 flex items-center gap-3 ${isSunset ? "bg-orange-50" : "bg-gray-50"}`}>
                             <span className={`text-xs font-bold w-16 shrink-0 ${isSunset ? "text-orange-400" : "text-gray-400"}`}>{slot.time}</span>
                             <span className={`text-xs font-semibold uppercase tracking-wide ${isSunset ? "text-orange-500" : "text-gray-500"}`}>
                               {isSunset ? "Sunset" : slot.label}
