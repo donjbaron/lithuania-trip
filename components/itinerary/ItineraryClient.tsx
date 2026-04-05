@@ -105,111 +105,123 @@ type ItinerarySlot =
   | { type: "meal"; label: string; time: string; restaurant?: Restaurant }
   | { type: "activity"; activity: WishlistItem; time: string };
 
-function inferCoords(a: WishlistItem): [number, number] | null {
-  if (a.lat != null && a.lng != null) return [a.lat, a.lng];
-  // Try city field, then scan address string for a known city name
-  const cityKey = a.city ?? Object.keys(CITY_COORDS).find(c =>
+// Infer city name from activity city field or address string
+function inferActivityCity(a: WishlistItem): string | null {
+  if (a.city && CITY_COORDS[a.city]) return a.city;
+  return Object.keys(CITY_COORDS).find(c =>
     (a.address ?? "").toLowerCase().includes(c.toLowerCase())
-  );
-  return cityKey && CITY_COORDS[cityKey] ? CITY_COORDS[cityKey] : null;
+  ) ?? null;
 }
 
-function geoDistance(a: WishlistItem, b: WishlistItem) {
-  const ca = inferCoords(a);
-  const cb = inferCoords(b);
-  if (!ca || !cb) return 0;
-  const dlat = ca[0] - cb[0];
-  const dlng = ca[1] - cb[1];
-  return Math.sqrt(dlat * dlat + dlng * dlng);
-}
-
-// Split a nearest-neighbor-sorted list into two geographic clusters by
-// finding the largest distance jump between consecutive items.
-function clusterByGap(sorted: WishlistItem[]): [WishlistItem[], WishlistItem[]] {
-  const n = sorted.length;
-  if (n <= 1) return [sorted, []];
-
-  let bestSplit = Math.ceil(n / 2);
-  let bestGap = -Infinity;
-
-  for (let i = 1; i < n; i++) {
-    // Only consider gaps where both items have coordinates
-    if (sorted[i - 1].lat != null && sorted[i].lat != null) {
-      const gap = geoDistance(sorted[i - 1], sorted[i]);
-      if (gap > bestGap) {
-        bestGap = gap;
-        bestSplit = i;
-      }
+// Warn if route revisits a city after leaving it (A→B→A backtracking)
+function detectBacktracking(ordered: WishlistItem[]): string | null {
+  const cities = ordered.map(inferActivityCity).filter(Boolean) as string[];
+  const leftCities = new Set<string>();
+  let prev = cities[0] ?? null;
+  for (let i = 1; i < cities.length; i++) {
+    const city = cities[i];
+    if (city && city !== prev) {
+      if (prev) leftCities.add(prev);
+      if (leftCities.has(city)) return `Route backtracks to ${city}`;
+      prev = city;
     }
   }
-
-  // Re-sort each cluster independently for optimal within-group ordering
-  return [optimizeRoute(sorted.slice(0, bestSplit)), optimizeRoute(sorted.slice(bestSplit))];
+  return null;
 }
 
-function nearestNeighborSort(items: WishlistItem[], startIdx = 0): WishlistItem[] {
-  if (items.length <= 1) return items;
-  const remaining = [...items];
-  const result: WishlistItem[] = [remaining.splice(startIdx, 1)[0]];
-  while (remaining.length > 0) {
-    const last = result[result.length - 1];
-    let nearestIdx = 0;
-    let nearestDist = Infinity;
-    for (let i = 0; i < remaining.length; i++) {
-      const d = geoDistance(last, remaining[i]);
-      if (d < nearestDist) { nearestDist = d; nearestIdx = i; }
-    }
-    result.push(remaining.splice(nearestIdx, 1)[0]);
-  }
-  return result;
-}
-
-function routeLength(items: WishlistItem[]): number {
-  let dist = 0;
-  for (let i = 1; i < items.length; i++) dist += geoDistance(items[i - 1], items[i]);
-  return dist;
-}
-
-// Try every starting point for nearest-neighbor and keep the shortest result.
-function bestNearestNeighbor(items: WishlistItem[]): WishlistItem[] {
-  if (items.length <= 2) return nearestNeighborSort(items);
-  let best: WishlistItem[] = nearestNeighborSort(items, 0);
-  let bestDist = routeLength(best);
-  for (let i = 1; i < items.length; i++) {
-    const route = nearestNeighborSort(items, i);
-    const dist = routeLength(route);
-    if (dist < bestDist) { bestDist = dist; best = route; }
-  }
-  return best;
-}
-
-// 2-opt local search: repeatedly reverse segments that shorten the open path.
-function twoOptImprove(items: WishlistItem[]): WishlistItem[] {
-  const n = items.length;
-  if (n <= 3) return items;
-  let route = [...items];
-  let improved = true;
-  while (improved) {
-    improved = false;
-    for (let i = 0; i < n - 2; i++) {
-      for (let j = i + 2; j < n; j++) {
-        const oldCost = geoDistance(route[i], route[i + 1]) +
-          (j + 1 < n ? geoDistance(route[j], route[j + 1]) : 0);
-        const newCost = geoDistance(route[i], route[j]) +
-          (j + 1 < n ? geoDistance(route[i + 1], route[j + 1]) : 0);
-        if (newCost < oldCost - 1e-10) {
-          route = [...route.slice(0, i + 1), ...route.slice(i + 1, j + 1).reverse(), ...route.slice(j + 1)];
-          improved = true;
+// Full N×N driving-time matrix via Maps Distance Matrix API
+type MatrixCell = { mins: number; meters: number };
+async function buildTravelMatrix(waypoints: Array<{ lat: number; lng: number }>): Promise<MatrixCell[][]> {
+  const n = waypoints.length;
+  const empty = () => Array.from({ length: n }, () => Array(n).fill({ mins: 0, meters: 0 })) as MatrixCell[][];
+  if (n < 2) return empty();
+  await loadGoogleMapsWithPlaces();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const g = (window as any).google;
+  return new Promise<MatrixCell[][]>(resolve => {
+    new g.maps.DistanceMatrixService().getDistanceMatrix(
+      {
+        origins: waypoints,
+        destinations: waypoints,
+        travelMode: g.maps.TravelMode.DRIVING,
+        unitSystem: g.maps.UnitSystem.METRIC,
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (res: any, status: string) => {
+        const matrix = empty();
+        if (status === "OK") {
+          for (let i = 0; i < n; i++) {
+            for (let j = 0; j < n; j++) {
+              const el = res.rows[i]?.elements[j];
+              if (el?.status === "OK") {
+                matrix[i][j] = { mins: Math.round(el.duration.value / 60), meters: el.distance.value };
+              }
+            }
+          }
         }
+        resolve(matrix);
       }
+    );
+  });
+}
+
+function routeTotalMins(route: number[], matrix: MatrixCell[][]): number {
+  let t = 0;
+  for (let i = 1; i < route.length; i++) t += matrix[route[i - 1]][route[i]].mins;
+  return t;
+}
+
+function tspNearestNeighbor(matrix: MatrixCell[][], start: number): number[] {
+  const n = matrix.length;
+  const visited = new Set([start]);
+  const route = [start];
+  while (route.length < n) {
+    const last = route[route.length - 1];
+    let best = -1, bestMins = Infinity;
+    for (let j = 0; j < n; j++) {
+      if (!visited.has(j) && matrix[last][j].mins < bestMins) { best = j; bestMins = matrix[last][j].mins; }
     }
+    if (best === -1) break;
+    visited.add(best); route.push(best);
   }
   return route;
 }
 
-// Full optimization: best nearest-neighbor start + 2-opt refinement.
-function optimizeRoute(items: WishlistItem[]): WishlistItem[] {
-  return twoOptImprove(bestNearestNeighbor(items));
+function tspTwoOpt(route: number[], matrix: MatrixCell[][]): number[] {
+  let best = [...route];
+  let improved = true;
+  while (improved) {
+    improved = false;
+    for (let i = 1; i < best.length - 1; i++) {
+      for (let j = i + 1; j < best.length; j++) {
+        const candidate = [...best.slice(0, i), ...best.slice(i, j + 1).reverse(), ...best.slice(j + 1)];
+        if (routeTotalMins(candidate, matrix) < routeTotalMins(best, matrix)) { best = candidate; improved = true; }
+      }
+    }
+  }
+  return best;
+}
+
+function findBestRoute(matrix: MatrixCell[][]): number[] {
+  const n = matrix.length;
+  if (n === 0) return [];
+  if (n === 1) return [0];
+  let best: number[] = [], bestMins = Infinity;
+  for (let s = 0; s < n; s++) {
+    const route = tspTwoOpt(tspNearestNeighbor(matrix, s), matrix);
+    const t = routeTotalMins(route, matrix);
+    if (t < bestMins) { best = route; bestMins = t; }
+  }
+  return best;
+}
+
+function matrixCellToLeg(cell: MatrixCell): { duration: string; mode: "walk" | "drive" } {
+  if (cell.meters > 0 && cell.meters < 1600) {
+    return { duration: `~${Math.max(1, Math.round(cell.meters / 80))} min`, mode: "walk" };
+  }
+  const h = Math.floor(cell.mins / 60), m = cell.mins % 60;
+  const text = h > 0 ? (m > 0 ? `${h} hr ${m} mins` : `${h} hr`) : `${cell.mins} mins`;
+  return { duration: text, mode: "drive" };
 }
 
 function minsToTime(totalMins: number) {
@@ -291,67 +303,7 @@ const SUNSET: Record<string, string> = {
   "2026-08-06": "8:48 PM",
 };
 
-const TOO_BUSY = 4;
-
-function buildDayItinerary(
-  activitiesForDay: WishlistItem[],
-  isArrivalDay: boolean,
-  date: string,
-): {
-  timed: { activity: WishlistItem; mins: number }[];
-  slots: ItinerarySlot[];
-  excess: WishlistItem[];
-} {
-  const fixed = activitiesForDay.filter((a) => a.time_slot);
-  const flexible = activitiesForDay.filter((a) => !a.time_slot);
-  const withCoords = flexible.filter((a) => (a.lat != null && a.lng != null) || !!a.address);
-  const withoutCoords = flexible.filter((a) => a.lat == null && !a.address);
-  const sortedFlexible = [...optimizeRoute(withCoords), ...withoutCoords];
-
-  const timed: { activity: WishlistItem; mins: number }[] = [];
-  fixed.forEach((a) => {
-    const [h, m] = a.time_slot!.split(":").map(Number);
-    timed.push({ activity: a, mins: h * 60 + m });
-  });
-
-  if (isArrivalDay) {
-    const lastArrivalMins = fixed.length > 0
-      ? Math.max(...fixed.map((a) => { const [h, m] = a.time_slot!.split(":").map(Number); return h * 60 + m; }))
-      : 16 * 60;
-    sortedFlexible.forEach((a, i) => timed.push({ activity: a, mins: lastArrivalMins + 90 + i * 75 }));
-  } else {
-    // Split into two geographic clusters: find the biggest distance gap
-    // in the nearest-neighbor path and break there so nearby activities
-    // stay in the same morning/afternoon block.
-    const [morningGroup, afternoonGroup] = clusterByGap(sortedFlexible);
-    morningGroup.forEach((a, i) => timed.push({ activity: a, mins: 10 * 60 + i * 90 }));
-    afternoonGroup.forEach((a, i) => timed.push({ activity: a, mins: 14 * 60 + 30 + i * 90 }));
-  }
-  timed.sort((a, b) => a.mins - b.mins);
-
-  const slots: ItinerarySlot[] = [];
-  const sunsetTime = SUNSET[date] ?? null;
-  if (!isArrivalDay) slots.push({ type: "meal", label: "Breakfast", time: "9:00 AM" });
-
-  let lunchInserted = false, sunsetInserted = false, activitiesBeforeLunch = 0;
-  for (const { activity, mins } of timed) {
-    if (!isArrivalDay && !lunchInserted && mins >= 12 * 60 && activitiesBeforeLunch >= 2) {
-      slots.push({ type: "meal", label: "Lunch", time: "12:30 PM" });
-      lunchInserted = true;
-    }
-    if (sunsetTime && !sunsetInserted && mins >= 21 * 60) {
-      slots.push({ type: "meal", label: "Sunset", time: sunsetTime });
-      sunsetInserted = true;
-    }
-    slots.push({ type: "activity", activity, time: minsToTime(mins) });
-    if (!lunchInserted) activitiesBeforeLunch++;
-  }
-  if (!isArrivalDay && !lunchInserted) slots.push({ type: "meal", label: "Lunch", time: "12:30 PM" });
-  if (sunsetTime && !sunsetInserted) slots.push({ type: "meal", label: "Sunset", time: sunsetTime });
-
-  const excess = sortedFlexible.length > TOO_BUSY ? sortedFlexible.slice(TOO_BUSY) : [];
-  return { timed, slots, excess };
-}
+const TOO_BUSY = 5; // max routable activities before warning
 
 export default function ItineraryClient({ days, items, hotels, activities, restaurants }: Props) {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -372,6 +324,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
   const [localActivityOrder, setLocalActivityOrder] = useState<number[] | null>(null);
   const [orderSaved, setOrderSaved] = useState(false);
   const [itinerarySaved, setItinerarySaved] = useState(false);
+  const [backtrackWarning, setBacktrackWarning] = useState<string | null>(null);
   const [skippedActivityIds, setSkippedActivityIds] = useState<Set<number>>(new Set());
   const [travelLegs, setTravelLegs] = useState<Array<{ duration: string; mode: "walk" | "drive" } | null>>([]);
   const [routePoints, setRoutePoints] = useState<{ lat: number; lng: number }[]>([]);
@@ -391,17 +344,14 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
   const sharedItems = selectedItems.filter((i) => !i.family_group || i.family_group === "all");
   const mappedActivities = activitiesForDay.filter((a) => selectedActivityIds.has(a.id));
 
-  // Background: compute itinerary for all days to detect busy ones
+  // Flag days with more than TOO_BUSY routable activities
   useEffect(() => {
     const busy: Record<string, { excess: WishlistItem[]; nextDay: ItineraryDay | null }> = {};
     for (let i = 0; i < days.length; i++) {
       const day = days[i];
-      const dayActs = activities.filter((a) => a.activity_date === day.trip_date);
-      if (dayActs.length === 0) continue;
-      const { excess } = buildDayItinerary(dayActs, day.trip_date === "2026-07-31", day.trip_date);
-      if (excess.length > 0) {
-        busy[day.trip_date] = { excess, nextDay: i < days.length - 1 ? days[i + 1] : null };
-      }
+      const dayActs = activities.filter((a) => a.activity_date === day.trip_date && (a.lat != null || !!a.address));
+      if (dayActs.length <= TOO_BUSY) continue;
+      busy[day.trip_date] = { excess: dayActs.slice(TOO_BUSY), nextDay: i < days.length - 1 ? days[i + 1] : null };
     }
     setAllBusyDays(busy);
   }, [activities, days]);
@@ -417,23 +367,15 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     setOrderSaved(false);
     setSkippedActivityIds(new Set());
     setItinerarySaved(false);
+    setBacktrackWarning(null);
     setRoutePoints([]);
 
     if (!selectedDate) return;
 
     if (autoSuggestRef.current) {
       autoSuggestRef.current = false;
-      const dayActs = activities.filter((a) => a.activity_date === selectedDate);
-      const isArrival = selectedDate === "2026-07-31";
-      const { timed, slots, excess } = buildDayItinerary(dayActs, isArrival, selectedDate);
-      const idx = days.findIndex((d) => d.trip_date === selectedDate);
-      const nextDay = idx >= 0 && idx < days.length - 1 ? days[idx + 1] : null;
-      setItinerarySlots(slots);
-      setItinerarySuggested(true);
-      if (excess.length > 0) setBusySuggestion({ excess, nextDay });
-      // Store timed for Map button, but don't auto-map
-      autoSuggestRef.current = false;
-      void timed; // used below via itinerarySlots
+      // Auto-suggest runs async; trigger it after state settles
+      setTimeout(() => suggestItinerary(), 0);
     }
 
     setTimeout(() => panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
@@ -619,12 +561,18 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
       setSelectedActivityIds(new Set());
       setBusySuggestion(null);
       setTravelLegs([]);
+      setBacktrackWarning(null);
       return;
     }
 
-    // Geocode any activities that have an address but no coordinates
-    const needsGeocode = activitiesForDay.filter(a => a.lat == null && a.address);
-    let geocodedActivities = activitiesForDay;
+    const date = selectedDay?.trip_date ?? "";
+    const city = selectedDay?.city ?? null;
+    const isArrivalDay = date === "2026-07-31";
+    const candidates = activitiesForDay.filter(a => !skippedActivityIds.has(a.id));
+
+    // 1. Geocode address-only activities to get real coordinates
+    const needsGeocode = candidates.filter(a => a.lat == null && a.address);
+    let geocoded = candidates;
     if (needsGeocode.length > 0) {
       try {
         await loadGoogleMapsWithPlaces();
@@ -632,6 +580,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
         const geocoder = new (window as any).google.maps.Geocoder();
         const coordMap = new Map<number, { lat: number; lng: number }>();
         await Promise.all(needsGeocode.map(a => new Promise<void>(resolve => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           geocoder.geocode({ address: a.address }, (res: any, status: string) => {
             if (status === "OK" && res[0]) {
               const loc = res[0].geometry.location;
@@ -641,82 +590,135 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
           });
         })));
         if (coordMap.size > 0) {
-          geocodedActivities = activitiesForDay.map(a =>
-            coordMap.has(a.id) ? { ...a, ...coordMap.get(a.id)! } : a
-          );
-          // Persist geocoded coords so future suggestions don't re-geocode
+          geocoded = candidates.map(a => coordMap.has(a.id) ? { ...a, ...coordMap.get(a.id)! } : a);
           for (const [id, { lat, lng }] of coordMap) {
             updateActivityCoords(id, lat, lng).catch(() => {});
           }
         }
-      } catch { /* fall back to city-coord approximation */ }
+      } catch { /* proceed without geocoding */ }
     }
 
-    const isArrivalDay = selectedDay?.trip_date === "2026-07-31";
-    const { timed, slots, excess } = buildDayItinerary(geocodedActivities.filter(a => !skippedActivityIds.has(a.id)), isArrivalDay, selectedDay?.trip_date ?? "");
-    const idx = days.findIndex((d) => d.trip_date === selectedDay?.trip_date);
-    const nextDay = idx >= 0 && idx < days.length - 1 ? days[idx + 1] : null;
+    // 2. Classify activities
+    // Transit markers (arrival/departure/check-in etc.) stay at their fixed time_slot
+    const TRANSIT_RE = /\b(arriv|depart|leave|flight|transfer|check.?in|check.?out|train|bus)\b/i;
+    const isTransit = (a: WishlistItem) => TRANSIT_RE.test(a.title);
+    const transitFixed = geocoded.filter(a => isTransit(a) && a.time_slot)
+      .map(a => { const [h, m] = a.time_slot!.split(":").map(Number); return { a, mins: h * 60 + m }; })
+      .sort((x, y) => x.mins - y.mins);
+    const sightseeing = geocoded.filter(a => !isTransit(a));
+    const routable = sightseeing.filter(a => a.lat != null && a.lng != null);
+    const unroutable = sightseeing.filter(a => a.lat == null || a.lng == null);
 
-    const date = selectedDay?.trip_date ?? "";
-    const city = selectedDay?.city ?? null;
+    // 3. Build N×N distance matrix and find optimal route order
+    let orderedActivities = routable;
+    const activityLegs: Array<{ duration: string; mode: "walk" | "drive" } | null> = [];
+    let matrix: MatrixCell[][] = [];
+
+    if (routable.length >= 2) {
+      try {
+        matrix = await buildTravelMatrix(routable.map(a => ({ lat: a.lat!, lng: a.lng! })));
+        const order = findBestRoute(matrix);
+        orderedActivities = order.map(i => routable[i]);
+        for (let i = 0; i < order.length - 1; i++) {
+          activityLegs.push(matrixCellToLeg(matrix[order[i]][order[i + 1]]));
+        }
+      } catch { /* keep original order */ }
+    }
+
+    // 4. Sanity check for city-level backtracking
+    setBacktrackWarning(detectBacktracking(orderedActivities));
+
+    // 5. Assign meals
     const assignedBreakfast = restaurants.find(r => r.meal_type === "breakfast" && r.city === city) ?? null;
     const assignedLunch = restaurants.find(r => r.activity_date === date && r.meal_type === "lunch") ?? null;
     const assignedDinner = restaurants.find(r => r.activity_date === date && r.meal_type === "dinner") ?? null;
-    const enrichedSlots: ItinerarySlot[] = slots.map(s => {
-      if (s.type === "meal" && s.label === "Breakfast" && assignedBreakfast) return { ...s, restaurant: assignedBreakfast };
-      if (s.type === "meal" && s.label === "Lunch" && assignedLunch) return { ...s, restaurant: assignedLunch };
-      return s;
-    });
-    // Append dinner slot after last activity if assigned
-    if (assignedDinner) {
-      const lastActIdx = [...enrichedSlots].reverse().findIndex(s => s.type === "activity");
-      if (lastActIdx >= 0) {
-        const insertAt = enrichedSlots.length - lastActIdx;
-        enrichedSlots.splice(insertAt, 0, { type: "meal", label: "Dinner", time: "7:30 PM", restaurant: assignedDinner });
-      }
+    const sunsetTime = SUNSET[date] ?? null;
+
+    // 6. Build slots, scheduling forward from real travel times
+    const slots: ItinerarySlot[] = [];
+    // Breakfast at 9 AM; sightseeing starts at 10 AM after 60-min breakfast
+    let currentMins = isArrivalDay ? 16 * 60 : 10 * 60;
+    if (!isArrivalDay) {
+      slots.push({ type: "meal", label: "Breakfast", time: "9:00 AM", ...(assignedBreakfast ? { restaurant: assignedBreakfast } : {}) });
     }
 
-    // Build combined stop list: activities + restaurants in slot order
-    const stops: Stop[] = enrichedSlots.flatMap((s): Stop[] => {
-      if (s.type === "activity") {
-        const a = s.activity;
-        if (a.lat != null && a.lng != null) return [{ lat: a.lat, lng: a.lng, address: a.address ?? null }];
-        if (a.address) return [{ lat: null, lng: null, address: a.address }];
-        return [];
-      }
-      if (s.type === "meal" && s.restaurant) {
-        const r = s.restaurant;
-        if (r.lat != null && r.lng != null) return [{ lat: r.lat, lng: r.lng, address: r.address ?? null }];
-        if (r.address) return [{ lat: null, lng: null, address: r.address }];
-        return [];
-      }
-      return [];
-    });
+    let lunchInserted = false;
+    let activitiesDone = 0;
+    let transitIdx = 0;
 
-    // Build route points for auto-visualization (skip skipped/transit activities)
-    const exclude = (a: WishlistItem) =>
-      skippedActivityIds.has(a.id) ||
-      /\b(arriv|depart|flight|transfer|check.?in|check.?out|train|bus)\b/i.test(a.title);
-    const routeIds = enrichedSlots.filter(s => s.type === "activity").map(s => (s as Extract<ItinerarySlot, {type:"activity"}>).activity).filter(a => !exclude(a)).map(a => a.id);
-    const pts = enrichedSlots.flatMap(s => {
-      if (s.type === "activity") {
-        const a = (s as Extract<ItinerarySlot, {type:"activity"}>).activity;
-        if (!exclude(a) && a.lat != null && a.lng != null) return [{ lat: a.lat, lng: a.lng }];
-      }
-      if (s.type === "meal") {
-        const r = (s as Extract<ItinerarySlot, {type:"meal"}>).restaurant;
-        if (r?.lat != null && r.lng != null) return [{ lat: r.lat, lng: r.lng }];
-      }
-      return [];
-    });
+    for (let i = 0; i < orderedActivities.length; i++) {
+      const a = orderedActivities[i];
 
+      // Interleave transit markers whose fixed time has passed
+      while (transitIdx < transitFixed.length && transitFixed[transitIdx].mins <= currentMins) {
+        slots.push({ type: "activity", activity: transitFixed[transitIdx].a, time: minsToTime(transitFixed[transitIdx].mins) });
+        transitIdx++;
+      }
+
+      // Travel from previous activity (skip for first)
+      if (i > 0 && activityLegs[i - 1]) {
+        currentMins += parseLegMins(activityLegs[i - 1]);
+      }
+
+      // Insert lunch when ≥2 activities done and it's noon or later
+      if (!isArrivalDay && !lunchInserted && activitiesDone >= 2 && currentMins >= 12 * 60) {
+        slots.push({ type: "meal", label: "Lunch", time: minsToTime(currentMins), ...(assignedLunch ? { restaurant: assignedLunch } : {}) });
+        currentMins += MEAL_DURATION;
+        lunchInserted = true;
+      }
+
+      slots.push({ type: "activity", activity: a, time: minsToTime(currentMins) });
+      currentMins += getDuration(a.id);
+      activitiesDone++;
+    }
+
+    // Drain remaining transit markers
+    while (transitIdx < transitFixed.length) {
+      const { a, mins } = transitFixed[transitIdx++];
+      slots.push({ type: "activity", activity: a, time: minsToTime(Math.max(currentMins, mins)) });
+    }
+
+    // Late lunch (if never inserted)
+    if (!isArrivalDay && !lunchInserted) {
+      const lunchMins = Math.max(currentMins, 12 * 60);
+      slots.push({ type: "meal", label: "Lunch", time: minsToTime(lunchMins), ...(assignedLunch ? { restaurant: assignedLunch } : {}) });
+      currentMins = lunchMins + MEAL_DURATION;
+    }
+
+    // Unroutable activities (no coords, no address) listed at end
+    for (const a of unroutable) {
+      slots.push({ type: "activity", activity: a, time: minsToTime(currentMins) });
+      currentMins += getDuration(a.id);
+    }
+
+    // Dinner (no earlier than 6 PM)
+    if (assignedDinner) {
+      const dinnerMins = Math.max(currentMins, 18 * 60);
+      slots.push({ type: "meal", label: "Dinner", time: minsToTime(dinnerMins), restaurant: assignedDinner });
+      currentMins = dinnerMins + MEAL_DURATION;
+    }
+
+    // Sunset marker
+    if (sunsetTime) slots.push({ type: "meal", label: "Sunset", time: sunsetTime });
+
+    // 7. Busy-day warning
+    const idx = days.findIndex(d => d.trip_date === date);
+    const nextDay = idx >= 0 && idx < days.length - 1 ? days[idx + 1] : null;
+    const excess = orderedActivities.length > TOO_BUSY ? orderedActivities.slice(TOO_BUSY) : [];
     setBusySuggestion(excess.length > 0 ? { excess, nextDay } : null);
-    setItinerarySlots(enrichedSlots);
+
+    // 8. Route visualization
+    const routeIds = orderedActivities.map(a => a.id);
+    const pts = orderedActivities.filter(a => a.lat != null && a.lng != null).map(a => ({ lat: a.lat!, lng: a.lng! }));
+
+    setItinerarySlots(slots);
     setRouteIds(routeIds);
     setRoutePoints(pts);
     setSelectedActivityIds(new Set(routeIds));
     setItinerarySuggested(true);
-    calcLegs(stops).catch(() => {});
+
+    // 9. Compute full consecutive legs (includes meal restaurants) for recomputeSlotTimes
+    calcLegs(slotsToStops(slots)).catch(() => {});
   }
 
   function toggleActivity(id: number) {
@@ -739,17 +741,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
 
   function openWithSuggestion(date: string) {
     if (selectedDate === date) {
-      // Panel already open — apply suggestion directly without re-mounting
-      const dayActs = activities.filter((a) => a.activity_date === date);
-      const isArrival = date === "2026-07-31";
-      const { timed, slots, excess } = buildDayItinerary(dayActs, isArrival, date);
-      const idx = days.findIndex((d) => d.trip_date === date);
-      const nextDay = idx >= 0 && idx < days.length - 1 ? days[idx + 1] : null;
-      setItinerarySlots(slots);
-      setRouteIds([]);
-      setSelectedActivityIds(new Set());
-      setItinerarySuggested(true);
-      if (excess.length > 0) setBusySuggestion({ excess, nextDay });
+      suggestItinerary();
       setTimeout(() => panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
     } else {
       autoSuggestRef.current = true;
@@ -1008,6 +1000,12 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                   )}
                 </div>
 
+                {itinerarySuggested && backtrackWarning && (
+                  <div className="mx-4 mt-3 mb-1 px-4 py-3 bg-orange-50 border border-orange-200 rounded-xl">
+                    <p className="text-sm font-semibold text-orange-800">Route warning: {backtrackWarning}</p>
+                    <p className="text-xs text-orange-700 mt-1">The route may be zigzagging between cities. Consider skipping some activities or reordering manually.</p>
+                  </div>
+                )}
                 {itinerarySuggested && busySuggestion && (
                   <div className="mx-4 mt-3 mb-1 px-4 py-3 bg-yellow-50 border border-yellow-200 rounded-xl space-y-2">
                     <p className="text-sm font-semibold text-yellow-800">
