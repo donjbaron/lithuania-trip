@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Image from "next/image";
 import { FAMILIES, type WishlistItem } from "@/lib/types";
 import { deleteActivity, toggleInterest, updateActivity, setAllInterest, moveActivitiesToDay, unassignActivityDate, reorderActivities } from "@/app/actions/activities";
@@ -58,15 +58,11 @@ function InterestVote({ item, familyKey, current }: {
     family2: "bg-blue-50 border-blue-400 text-blue-700",
     family3: "bg-green-50 border-green-500 text-green-700",
   };
-
   return (
-    <form action={toggleInterest.bind(null, item.id, familyKey, current)}>
-      <button
-        type="submit"
+    <form action={toggleInterest.bind(null, item.id, familyKey, current)} draggable={false}>
+      <button type="submit" draggable={false}
         className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium transition-all ${
-          current
-            ? activeColors[familyKey]
-            : "bg-white border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-600"
+          current ? activeColors[familyKey] : "bg-white border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-600"
         }`}
       >
         <div className={`w-5 h-5 rounded-full overflow-hidden shrink-0 ring-1 ${current ? "ring-current" : "ring-gray-300"}`}>
@@ -82,43 +78,35 @@ function InterestVote({ item, familyKey, current }: {
   );
 }
 
-function DragHandle() {
-  return (
-    <div className="flex items-center px-2 text-gray-300 cursor-grab active:cursor-grabbing shrink-0 touch-none">
-      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-        <path d="M7 2a2 2 0 110 4 2 2 0 010-4zm6 0a2 2 0 110 4 2 2 0 010-4zM7 8a2 2 0 110 4 2 2 0 010-4zm6 0a2 2 0 110 4 2 2 0 010-4zm-6 6a2 2 0 110 4 2 2 0 010-4zm6 0a2 2 0 110 4 2 2 0 010-4z"/>
-      </svg>
-    </div>
-  );
+// Drag insert indicator – shown between rows
+function InsertLine() {
+  return <div className="h-0.5 mx-3 bg-blue-400 rounded-full pointer-events-none" />;
 }
 
 function ActivityRow({
   item,
   isDragging,
-  insertAbove,
-  insertBelow,
+  showInsertBefore,
+  showInsertAfter,
   onDragStart,
   onDragEnd,
   onDragOver,
 }: {
   item: WishlistItem;
   isDragging: boolean;
-  insertAbove: boolean;
-  insertBelow: boolean;
+  showInsertBefore: boolean;
+  showInsertAfter: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
   onDragOver: (above: boolean) => void;
 }) {
   const [editing, setEditing] = useState(false);
-
-  async function handleUpdate(formData: FormData) {
-    await updateActivity(item.id, formData);
-    setEditing(false);
-  }
+  const rowRef = useRef<HTMLDivElement>(null);
 
   if (editing) {
     return (
-      <form action={handleUpdate} className="px-4 py-3 space-y-2 bg-amber-50/40">
+      <form action={async (fd) => { await updateActivity(item.id, fd); setEditing(false); }}
+        draggable={false} className="px-4 py-3 space-y-2 bg-amber-50/40">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div className="sm:col-span-2">
             <input type="text" name="name" defaultValue={item.title} required placeholder="Name"
@@ -134,157 +122,130 @@ function ActivityRow({
           </select>
           <input type="time" name="time_slot" defaultValue={item.time_slot ?? ""} className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white" />
           <input type="url" name="url" defaultValue={item.url ?? ""} placeholder="URL" className="sm:col-span-2 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
-          <input type="text" name="address" defaultValue={item.address ?? ""} placeholder="Address (optional)" className="sm:col-span-2 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+          <input type="text" name="address" defaultValue={item.address ?? ""} placeholder="Address" className="sm:col-span-2 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
         </div>
         <div className="flex gap-2">
-          <button type="submit" className="px-3 py-1 bg-amber-500 text-white rounded-lg text-xs font-medium hover:bg-amber-600">Save</button>
-          <button type="button" onClick={() => setEditing(false)} className="px-3 py-1 text-gray-500 rounded-lg text-xs hover:bg-gray-100">Cancel</button>
+          <button type="submit" draggable={false} className="px-3 py-1 bg-amber-500 text-white rounded-lg text-xs font-medium hover:bg-amber-600">Save</button>
+          <button type="button" draggable={false} onClick={() => setEditing(false)} className="px-3 py-1 text-gray-500 rounded-lg text-xs hover:bg-gray-100">Cancel</button>
         </div>
       </form>
     );
   }
 
   return (
-    <div className="relative">
-      {insertAbove && <div className="absolute top-0 left-0 right-0 h-0.5 bg-blue-400 z-10 rounded-full" />}
-      {insertBelow && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-400 z-10 rounded-full" />}
-    <div
-      draggable
-      onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; onDragStart(); }}
-      onDragEnd={onDragEnd}
-      onDragOver={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const rect = e.currentTarget.getBoundingClientRect();
-        onDragOver(e.clientY < rect.top + rect.height / 2);
-      }}
-      className={`flex divide-x divide-gray-100 transition-opacity ${isDragging ? "opacity-40" : ""}`}
-    >
-      <DragHandle />
-      {item.image_url && (
-        <div className="w-16 sm:w-24 shrink-0">
-          <img src={item.image_url} alt={item.title} className="w-full h-full object-cover" />
+    <>
+      {showInsertBefore && <InsertLine />}
+      <div
+        ref={rowRef}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData("text/plain", String(item.id));
+          e.dataTransfer.effectAllowed = "move";
+          // Small delay so the drag ghost renders before opacity changes
+          setTimeout(onDragStart, 0);
+        }}
+        onDragEnd={onDragEnd}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation(); // handle at row level; we'll set zone state explicitly
+          const rect = rowRef.current?.getBoundingClientRect();
+          if (rect) onDragOver(e.clientY < rect.top + rect.height / 2);
+        }}
+        className={`flex items-stretch divide-x divide-gray-100 cursor-grab active:cursor-grabbing select-none transition-opacity ${
+          isDragging ? "opacity-30" : "hover:bg-gray-50/60"
+        }`}
+      >
+        {/* Drag handle */}
+        <div className="flex items-center justify-center w-8 shrink-0 text-gray-300 hover:text-gray-400">
+          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M7 2a2 2 0 110 4 2 2 0 010-4zm6 0a2 2 0 110 4 2 2 0 010-4zM7 8a2 2 0 110 4 2 2 0 010-4zm6 0a2 2 0 110 4 2 2 0 010-4zm-6 6a2 2 0 110 4 2 2 0 010-4zm6 0a2 2 0 110 4 2 2 0 010-4z"/>
+          </svg>
         </div>
-      )}
-      <div className="flex-1 min-w-0 px-4 py-3 space-y-2">
-        <div className="flex items-start gap-2">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="text-sm font-semibold text-gray-800">{item.title}</p>
-              {item.time_slot && (
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 tabular-nums">
-                  {formatTime12(item.time_slot)}
-                </span>
-              )}
-              {item.city && (
-                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${CITY_BADGE[item.city] ?? "bg-gray-100 text-gray-500"}`}>
-                  {item.city}
-                </span>
-              )}
-              {item.activity_date && (
-                <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
-                  {formatDate(item.activity_date)}
-                </span>
+
+        {item.image_url && (
+          <div className="w-16 sm:w-20 shrink-0 pointer-events-none">
+            <img src={item.image_url} alt={item.title} draggable={false} className="w-full h-full object-cover" />
+          </div>
+        )}
+
+        <div className="flex-1 min-w-0 px-4 py-3 space-y-2">
+          <div className="flex items-start gap-2">
+            <div className="flex-1 min-w-0 pointer-events-none">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-semibold text-gray-800">{item.title}</p>
+                {item.time_slot && (
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 tabular-nums">
+                    {formatTime12(item.time_slot)}
+                  </span>
+                )}
+                {item.city && (
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${CITY_BADGE[item.city] ?? "bg-gray-100 text-gray-500"}`}>
+                    {item.city}
+                  </span>
+                )}
+                {item.activity_date && (
+                  <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
+                    {formatDate(item.activity_date)}
+                  </span>
+                )}
+              </div>
+              {item.url && (
+                <p className="text-xs text-amber-600 mt-0.5 truncate">{item.url}</p>
               )}
             </div>
-            {item.url && (
-              <a href={item.url} target="_blank" rel="noopener noreferrer"
-                className="text-xs text-amber-600 hover:underline mt-0.5 inline-flex items-center gap-1">
-                More info
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            {/* Action buttons – pointer-events kept so they remain clickable */}
+            <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+              <button type="button" draggable={false} onClick={() => setEditing(true)}
+                className="p-1.5 text-gray-300 hover:text-amber-500 transition-colors rounded">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                 </svg>
-              </a>
-            )}
-          </div>
-          <button onClick={() => setEditing(true)} className="p-1 text-gray-300 hover:text-amber-500 transition-colors rounded shrink-0" title="Edit">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-            </svg>
-          </button>
-          <form action={deleteActivity.bind(null, item.id)} className="shrink-0">
-            <button type="submit" className="p-1 text-gray-300 hover:text-red-400 transition-colors rounded" title="Delete">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-            </button>
-          </form>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <span className="text-xs text-gray-400 self-center mr-1">Who&apos;s in?</span>
-          {(() => {
-            const allOn = item.interested_family1 && item.interested_family2 && item.interested_family3;
-            return (
-              <form action={setAllInterest.bind(null, item.id, allOn ? 0 : 1)}>
-                <button type="submit"
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium transition-all ${
-                    allOn ? "bg-gray-800 border-gray-800 text-white" : "bg-white border-gray-200 text-gray-400 hover:border-gray-400 hover:text-gray-600"
-                  }`}>
-                  <span>All</span>
-                  {allOn
-                    ? <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
-                    : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
-                  }
+              </button>
+              <form action={deleteActivity.bind(null, item.id)} draggable={false}>
+                <button type="submit" draggable={false}
+                  className="p-1.5 text-gray-300 hover:text-red-400 transition-colors rounded">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
                 </button>
               </form>
-            );
-          })()}
-          <InterestVote item={item} familyKey="family1" current={item.interested_family1} />
-          <InterestVote item={item} familyKey="family2" current={item.interested_family2} />
-          <InterestVote item={item} familyKey="family3" current={item.interested_family3} />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
+            <span className="text-xs text-gray-400 self-center mr-1">Who&apos;s in?</span>
+            {(() => {
+              const allOn = item.interested_family1 && item.interested_family2 && item.interested_family3;
+              return (
+                <form action={setAllInterest.bind(null, item.id, allOn ? 0 : 1)} draggable={false}>
+                  <button type="submit" draggable={false}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium transition-all ${
+                      allOn ? "bg-gray-800 border-gray-800 text-white" : "bg-white border-gray-200 text-gray-400 hover:border-gray-400 hover:text-gray-600"
+                    }`}>
+                    <span>All</span>
+                    {allOn
+                      ? <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
+                      : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
+                    }
+                  </button>
+                </form>
+              );
+            })()}
+            <InterestVote item={item} familyKey="family1" current={item.interested_family1} />
+            <InterestVote item={item} familyKey="family2" current={item.interested_family2} />
+            <InterestVote item={item} familyKey="family3" current={item.interested_family3} />
+          </div>
         </div>
       </div>
-    </div>
-    </div>
-  );
-}
-
-// Drop zone wrapper — handles drag-over highlight and drop
-function DayDropZone({
-  targetDate,
-  isOver,
-  onDragOver,
-  onDragLeave,
-  onDrop,
-  children,
-  isEmpty,
-}: {
-  targetDate: string | null;
-  isOver: boolean;
-  onDragOver: () => void;
-  onDragLeave: () => void;
-  onDrop: () => void;
-  children: React.ReactNode;
-  isEmpty: boolean;
-}) {
-  return (
-    <div
-      onDragOver={(e) => { e.preventDefault(); onDragOver(); }}
-      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) { onDragLeave(); setInsertBefore(null); } }}
-      onDrop={(e) => { e.preventDefault(); onDrop(); }}
-      className={`rounded-xl border shadow-sm divide-y divide-gray-100 transition-all ${
-        isOver
-          ? "border-amber-400 ring-2 ring-amber-200 shadow-amber-100"
-          : "border-gray-200 bg-white"
-      }`}
-    >
-      {children}
-      {isEmpty && (
-        <div className={`px-4 py-4 text-center text-xs transition-colors ${
-          isOver ? "text-amber-600 font-medium" : "text-gray-300 italic"
-        }`}>
-          {isOver ? "Drop here" : "No activities"}
-        </div>
-      )}
-    </div>
+      {showInsertAfter && <InsertLine />}
+    </>
   );
 }
 
 export default function ActivityList({ items }: { items: WishlistItem[] }) {
   const [dragId, setDragId] = useState<number | null>(null);
-  const [dragOverDate, setDragOverDate] = useState<string | "unassigned" | null>(null);
-  // insertBefore: id of item to insert before, or "end" to append, or null (no indicator)
+  // dropTarget: which day zone is highlighted; insertBefore: id to insert before, or "end"
+  const [dropTarget, setDropTarget] = useState<string | "unassigned" | null>(null);
   const [insertBefore, setInsertBefore] = useState<number | "end" | null>(null);
 
   const dated = Object.keys(DATE_LABEL).sort();
@@ -293,47 +254,45 @@ export default function ActivityList({ items }: { items: WishlistItem[] }) {
     meta: DATE_LABEL[date],
     activities: items.filter((i) => i.activity_date === date),
   }));
-
-  // Show all days when dragging so you can drop anywhere; otherwise only populated days
-  const visibleDayGroups = dragId !== null
-    ? allDayGroups
-    : allDayGroups.filter((g) => g.activities.length > 0);
-
+  const visibleDayGroups = dragId !== null ? allDayGroups : allDayGroups.filter((g) => g.activities.length > 0);
   const undated = items.filter((i) => !i.activity_date);
   const showUndated = undated.length > 0 || dragId !== null;
 
-  async function handleDrop(targetDate: string | null) {
-    if (dragId === null) return;
-    const activity = items.find((i) => i.id === dragId);
+  function clearDragState() {
+    setDragId(null);
+    setDropTarget(null);
+    setInsertBefore(null);
+  }
+
+  async function handleDrop(e: React.DragEvent, targetDate: string | null) {
+    e.preventDefault();
+    const id = Number(e.dataTransfer.getData("text/plain"));
+    if (!id) { clearDragState(); return; }
+
+    const activity = items.find((i) => i.id === id);
     const currentDate = activity?.activity_date ?? null;
 
     if (currentDate === targetDate) {
-      // Same day — reorder
+      // Same day → reorder
       const dayItems = items.filter((i) => i.activity_date === targetDate);
-      const withoutDragged = dayItems.filter((i) => i.id !== dragId);
+      const rest = dayItems.filter((i) => i.id !== id);
       let newOrder: number[];
-      if (insertBefore === null || insertBefore === "end") {
-        newOrder = [...withoutDragged.map((i) => i.id), dragId];
+      if (!insertBefore || insertBefore === "end") {
+        newOrder = [...rest.map((i) => i.id), id];
       } else {
-        const idx = withoutDragged.findIndex((i) => i.id === insertBefore);
-        if (idx === -1) {
-          newOrder = [...withoutDragged.map((i) => i.id), dragId];
-        } else {
-          const ids = withoutDragged.map((i) => i.id);
-          ids.splice(idx, 0, dragId);
-          newOrder = ids;
-        }
+        const idx = rest.findIndex((i) => i.id === insertBefore);
+        const ids = rest.map((i) => i.id);
+        ids.splice(idx === -1 ? ids.length : idx, 0, id);
+        newOrder = ids;
       }
       await reorderActivities(newOrder);
     } else if (targetDate === null) {
-      await unassignActivityDate(dragId);
+      await unassignActivityDate(id);
     } else {
-      await moveActivitiesToDay([dragId], targetDate);
+      await moveActivitiesToDay([id], targetDate);
     }
 
-    setDragId(null);
-    setDragOverDate(null);
-    setInsertBefore(null);
+    clearDragState();
   }
 
   if (items.length === 0) {
@@ -345,17 +304,75 @@ export default function ActivityList({ items }: { items: WishlistItem[] }) {
     );
   }
 
+  function renderGroup(
+    groupDate: string | null,
+    groupKey: string,
+    groupItems: WishlistItem[],
+  ) {
+    const isOver = dropTarget === groupKey;
+    return (
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          // Only update if not handled by a child row (rows call stopPropagation)
+          setDropTarget(groupKey);
+          setInsertBefore("end");
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+            setDropTarget(null);
+            setInsertBefore(null);
+          }
+        }}
+        onDrop={(e) => handleDrop(e, groupDate)}
+        className={`rounded-xl border shadow-sm overflow-hidden transition-all bg-white ${
+          isOver ? "border-amber-400 ring-2 ring-amber-200" : "border-gray-200"
+        }`}
+      >
+        {groupItems.length === 0 ? (
+          <div className={`px-4 py-5 text-center text-xs ${isOver ? "text-amber-600 font-medium" : "text-gray-300 italic"}`}>
+            {isOver ? "Drop here" : "No activities — drag one here"}
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {groupItems.map((item, idx) => {
+              const next = groupItems[idx + 1];
+              return (
+                <ActivityRow
+                  key={item.id}
+                  item={item}
+                  isDragging={dragId === item.id}
+                  showInsertBefore={insertBefore === item.id && dragId !== item.id && dropTarget === groupKey}
+                  showInsertAfter={!next && insertBefore === "end" && dropTarget === groupKey && dragId !== null && dragId !== item.id}
+                  onDragStart={() => { setDragId(item.id); setDropTarget(groupKey); }}
+                  onDragEnd={clearDragState}
+                  onDragOver={(above) => {
+                    setDropTarget(groupKey);
+                    if (above) {
+                      setInsertBefore(item.id);
+                    } else {
+                      setInsertBefore(next ? next.id : "end");
+                    }
+                  }}
+                />
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {dragId !== null && (
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-center">
-          Drag to any day below — all days shown while dragging
+          Drag to reorder within a day, or drop on another day to move it
         </p>
       )}
 
       {visibleDayGroups.map(({ date, meta, activities }) => {
         const cities = [...new Set(activities.map((a) => a.city).filter(Boolean))];
-        const isOver = dragOverDate === date;
         return (
           <div key={date}>
             <div className="flex items-center gap-3 mb-2">
@@ -381,36 +398,7 @@ export default function ActivityList({ items }: { items: WishlistItem[] }) {
                 </span>
               )}
             </div>
-
-            <DayDropZone
-              targetDate={date}
-              isOver={isOver}
-              onDragOver={() => setDragOverDate(date)}
-              onDragLeave={() => setDragOverDate(null)}
-              onDrop={() => handleDrop(date)}
-              isEmpty={activities.length === 0}
-            >
-              {activities.map((item, idx) => (
-                <ActivityRow
-                  key={item.id}
-                  item={item}
-                  isDragging={dragId === item.id}
-                  insertAbove={insertBefore === item.id && dragId !== item.id}
-                  insertBelow={insertBefore === "end" && idx === activities.length - 1 && dragOverDate === date && dragId !== null}
-                  onDragStart={() => { setDragId(item.id); setDragOverDate(date); }}
-                  onDragEnd={() => { setDragId(null); setDragOverDate(null); setInsertBefore(null); }}
-                  onDragOver={(above) => {
-                    setDragOverDate(date);
-                    if (above) {
-                      setInsertBefore(item.id);
-                    } else {
-                      const next = activities[idx + 1];
-                      setInsertBefore(next ? next.id : "end");
-                    }
-                  }}
-                />
-              ))}
-            </DayDropZone>
+            {renderGroup(date, date, activities)}
           </div>
         );
       })}
@@ -418,42 +406,12 @@ export default function ActivityList({ items }: { items: WishlistItem[] }) {
       {showUndated && (
         <div>
           <div className="flex items-center gap-2 mb-2">
-            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-gray-100 text-gray-500">
-              No date assigned
-            </span>
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-gray-100 text-gray-500">No date assigned</span>
             {undated.length > 0 && (
               <span className="text-xs text-gray-400">{undated.length} activit{undated.length !== 1 ? "ies" : "y"}</span>
             )}
           </div>
-          <DayDropZone
-            targetDate={null}
-            isOver={dragOverDate === "unassigned"}
-            onDragOver={() => setDragOverDate("unassigned")}
-            onDragLeave={() => setDragOverDate(null)}
-            onDrop={() => handleDrop(null)}
-            isEmpty={undated.length === 0}
-          >
-            {undated.map((item, idx) => (
-              <ActivityRow
-                key={item.id}
-                item={item}
-                isDragging={dragId === item.id}
-                insertAbove={insertBefore === item.id && dragId !== item.id}
-                insertBelow={insertBefore === "end" && idx === undated.length - 1 && dragOverDate === "unassigned" && dragId !== null}
-                onDragStart={() => { setDragId(item.id); setDragOverDate("unassigned"); }}
-                onDragEnd={() => { setDragId(null); setDragOverDate(null); setInsertBefore(null); }}
-                onDragOver={(above) => {
-                  setDragOverDate("unassigned");
-                  if (above) {
-                    setInsertBefore(item.id);
-                  } else {
-                    const next = undated[idx + 1];
-                    setInsertBefore(next ? next.id : "end");
-                  }
-                }}
-              />
-            ))}
-          </DayDropZone>
+          {renderGroup(null, "unassigned", undated)}
         </div>
       )}
     </div>
