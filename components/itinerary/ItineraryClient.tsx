@@ -949,13 +949,15 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                   <div className="divide-y divide-gray-100">
                     {(() => {
                       let stopIdx = 0;
-                      const dragHandle = (
-                        <div data-drag-handle className="cursor-grab active:cursor-grabbing shrink-0 px-1 py-2 -mx-1 -my-1 touch-none">
-                          <svg className="w-4 h-4 text-gray-300" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M8 6a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 14a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 22a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4z"/>
-                          </svg>
-                        </div>
-                      );
+                      function dragHandle(key: string) {
+                        return (
+                          <div {...handleDragProps(key)} className="cursor-grab active:cursor-grabbing shrink-0 px-1 py-2 -mx-1 -my-1 touch-none select-none">
+                            <svg className="w-4 h-4 text-gray-300 pointer-events-none" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M8 6a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 14a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 22a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4z"/>
+                            </svg>
+                          </div>
+                        );
+                      }
                       function TravelLeg({ leg }: { leg: { duration: string; mode: "walk" | "drive" } }) {
                         return (
                           <div className="px-4 py-1 flex items-center gap-2 bg-white border-b border-gray-100">
@@ -970,19 +972,23 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                           </div>
                         );
                       }
-                      function dragProps(key: string) {
+                      // Handle gets draggable + dragstart/dragend
+                      function handleDragProps(key: string) {
                         return {
                           draggable: true as const,
                           onDragStart(e: React.DragEvent) {
-                            if (!(e.target as HTMLElement).closest('[data-drag-handle]')) {
-                              e.preventDefault();
-                              return;
-                            }
                             e.dataTransfer.setData("text/plain", key);
                             e.dataTransfer.effectAllowed = "move";
+                            const row = (e.currentTarget as HTMLElement).closest('[data-drag-row]') as HTMLElement | null;
+                            if (row) e.dataTransfer.setDragImage(row, 24, row.offsetHeight / 2);
                             setTimeout(() => setSlotDragKey(key), 0);
                           },
                           onDragEnd() { setSlotDragKey(null); setSlotInsertBefore(null); },
+                        };
+                      }
+                      // Row gets dragover + drop only (no draggable)
+                      function rowDropProps(key: string) {
+                        return {
                           onDragOver(e: React.DragEvent) {
                             e.preventDefault();
                             e.dataTransfer.dropEffect = "move";
@@ -1026,11 +1032,12 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                               {leg && <TravelLeg leg={leg} />}
                               {showInsert && <div className="h-0.5 bg-blue-500 mx-4" />}
                               <div
-                                {...dragProps(key)}
+                                data-drag-row
+                                {...rowDropProps(key)}
                                 className={`px-4 py-3 flex items-center gap-3 select-none transition-opacity bg-indigo-50/40 ${isDragging ? "opacity-40" : ""}`}
                               >
                                 <span className="text-xs font-bold text-indigo-500 w-16 shrink-0 pointer-events-none">{slot.time}</span>
-                                {dragHandle}
+                                {dragHandle(key)}
                                 <span className="text-xs font-semibold uppercase tracking-wide text-indigo-400 shrink-0 pointer-events-none">{slot.label}</span>
                                 {rest.image_url && <img src={rest.image_url} alt={rest.name} draggable={false} className="w-9 h-9 rounded-lg object-cover shrink-0 pointer-events-none" />}
                                 <div className="min-w-0 flex-1 pointer-events-none">
@@ -1052,11 +1059,12 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                             {leg && <TravelLeg leg={leg} />}
                             {showInsert && <div className="h-0.5 bg-blue-500 mx-4" />}
                             <div
-                              {...(draggable ? dragProps(key) : {})}
+                              data-drag-row
+                              {...(draggable ? rowDropProps(key) : {})}
                               className={`px-4 py-3 flex items-center gap-3 select-none transition-opacity ${isDragging ? "opacity-40" : isSkipped ? "opacity-40 bg-gray-50" : "bg-amber-50/40"}`}
                             >
                               <span className="text-xs font-bold text-amber-600 w-16 shrink-0 pointer-events-none">{time}</span>
-                              {dragHandle}
+                              {draggable ? dragHandle(key) : <div className="w-4 shrink-0" />}
                               <button
                                 draggable={false}
                                 type="button"
@@ -1118,17 +1126,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                         <div key={a.id}>
                           {showInsert && <div className="h-0.5 bg-blue-500 mx-4" />}
                           <div
-                            draggable
-                            onDragStart={(e) => {
-                              if (!(e.target as HTMLElement).closest('[data-drag-handle]')) {
-                                e.preventDefault();
-                                return;
-                              }
-                              e.dataTransfer.setData("text/plain", String(a.id));
-                              e.dataTransfer.effectAllowed = "move";
-                              setTimeout(() => setNormalDragId(a.id), 0);
-                            }}
-                            onDragEnd={() => { setNormalDragId(null); setNormalInsertBefore(null); }}
+                            data-drag-row
                             onDragOver={(e) => {
                               e.preventDefault();
                               e.dataTransfer.dropEffect = "move";
@@ -1151,8 +1149,19 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                             }}
                             className={`px-4 py-3 flex items-center gap-3 select-none transition-opacity ${isDragging ? "opacity-40" : isSkipped ? "opacity-40 bg-gray-50" : isPinned ? "bg-amber-50" : "hover:bg-gray-50"}`}
                           >
-                            <div data-drag-handle className="cursor-grab active:cursor-grabbing shrink-0 px-1 py-2 -mx-1 -my-1 touch-none">
-                              <svg className="w-4 h-4 text-gray-300" fill="currentColor" viewBox="0 0 24 24">
+                            <div
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer.setData("text/plain", String(a.id));
+                                e.dataTransfer.effectAllowed = "move";
+                                const row = (e.currentTarget as HTMLElement).closest('[data-drag-row]') as HTMLElement | null;
+                                if (row) e.dataTransfer.setDragImage(row, 24, row.offsetHeight / 2);
+                                setTimeout(() => setNormalDragId(a.id), 0);
+                              }}
+                              onDragEnd={() => { setNormalDragId(null); setNormalInsertBefore(null); }}
+                              className="cursor-grab active:cursor-grabbing shrink-0 px-1 py-2 -mx-1 -my-1 touch-none select-none"
+                            >
+                              <svg className="w-4 h-4 text-gray-300 pointer-events-none" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M8 6a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 14a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 22a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4z"/>
                               </svg>
                             </div>
