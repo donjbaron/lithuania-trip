@@ -11,7 +11,7 @@ import {
   FAMILIES,
   LITHUANIAN_CITIES,
 } from "@/lib/types";
-import { updateDay } from "@/app/actions/itinerary";
+import { updateDay, saveItinerary } from "@/app/actions/itinerary";
 import { moveActivitiesToDay, reorderActivities, updateActivityDuration } from "@/app/actions/activities";
 import { assignRestaurantToDay, unassignRestaurant, addAndAssignRestaurant } from "@/app/actions/restaurants";
 import FamilySection from "./FamilySection";
@@ -318,10 +318,10 @@ function buildDayItinerary(
   const sunsetTime = SUNSET[date] ?? null;
   if (!isArrivalDay) slots.push({ type: "meal", label: "Breakfast", time: "9:00 AM" });
 
-  let lunchInserted = false, sunsetInserted = false;
+  let lunchInserted = false, sunsetInserted = false, activitiesBeforeLunch = 0;
   for (const { activity, mins } of timed) {
-    if (!isArrivalDay && !lunchInserted && mins >= 13 * 60) {
-      slots.push({ type: "meal", label: "Lunch", time: "1:00 PM" });
+    if (!isArrivalDay && !lunchInserted && mins >= 12 * 60 && activitiesBeforeLunch >= 2) {
+      slots.push({ type: "meal", label: "Lunch", time: "12:30 PM" });
       lunchInserted = true;
     }
     if (sunsetTime && !sunsetInserted && mins >= 21 * 60) {
@@ -329,8 +329,9 @@ function buildDayItinerary(
       sunsetInserted = true;
     }
     slots.push({ type: "activity", activity, time: minsToTime(mins) });
+    if (!lunchInserted) activitiesBeforeLunch++;
   }
-  if (!isArrivalDay && !lunchInserted) slots.push({ type: "meal", label: "Lunch", time: "1:00 PM" });
+  if (!isArrivalDay && !lunchInserted) slots.push({ type: "meal", label: "Lunch", time: "12:30 PM" });
   if (sunsetTime && !sunsetInserted) slots.push({ type: "meal", label: "Sunset", time: sunsetTime });
 
   const excess = sortedFlexible.length > TOO_BUSY ? sortedFlexible.slice(TOO_BUSY) : [];
@@ -355,6 +356,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
   const [normalInsertBefore, setNormalInsertBefore] = useState<number | "end" | null>(null);
   const [localActivityOrder, setLocalActivityOrder] = useState<number[] | null>(null);
   const [orderSaved, setOrderSaved] = useState(false);
+  const [itinerarySaved, setItinerarySaved] = useState(false);
   const [skippedActivityIds, setSkippedActivityIds] = useState<Set<number>>(new Set());
   const [travelLegs, setTravelLegs] = useState<Array<{ duration: string; mode: "walk" | "drive" } | null>>([]);
   const [routePoints, setRoutePoints] = useState<{ lat: number; lng: number }[]>([]);
@@ -399,6 +401,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     setLocalActivityOrder(null);
     setOrderSaved(false);
     setSkippedActivityIds(new Set());
+    setItinerarySaved(false);
     setRoutePoints([]);
 
     if (!selectedDate) return;
@@ -934,6 +937,29 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                   >
                     {itinerarySuggested ? "Clear" : "Suggest itinerary"}
                   </button>
+                  {itinerarySuggested && (
+                    <button
+                      onClick={async () => {
+                        if (!selectedDay) return;
+                        const activitySlots = itinerarySlots
+                          .filter(s => s.type === "activity")
+                          .map((s, i) => ({
+                            id: (s as Extract<ItinerarySlot, {type:"activity"}>).activity.id,
+                            timeSlot: s.time,
+                            sortOrder: i,
+                          }));
+                        const restaurantIds = itinerarySlots
+                          .filter(s => s.type === "meal" && (s as Extract<ItinerarySlot, {type:"meal"}>).restaurant != null && (s as Extract<ItinerarySlot, {type:"meal"}>).label !== "Breakfast")
+                          .map(s => (s as Extract<ItinerarySlot, {type:"meal"}>).restaurant!.id);
+                        await saveItinerary(selectedDay.trip_date, activitySlots, restaurantIds);
+                        setItinerarySaved(true);
+                        setTimeout(() => setItinerarySaved(false), 2500);
+                      }}
+                      className="text-xs font-semibold px-2.5 py-1 rounded-full bg-green-600 text-white hover:bg-green-700 transition-colors"
+                    >
+                      {itinerarySaved ? "Saved ✓" : "Save itinerary"}
+                    </button>
+                  )}
                 </div>
 
                 {itinerarySuggested && busySuggestion && (

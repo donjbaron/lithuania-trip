@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { dbGet, dbRun } from "@/lib/db";
+import { dbAll, dbGet, dbRun } from "@/lib/db";
 
 export async function addDay(formData: FormData) {
   const trip_date = formData.get("trip_date") as string;
@@ -58,6 +58,28 @@ export async function addItem(dayId: number, familyGroup: string | null, formDat
 
 export async function deleteItem(id: number) {
   await dbRun("DELETE FROM itinerary_items WHERE id = ?", [id]);
+  revalidatePath("/itinerary", "layout");
+}
+
+export async function saveItinerary(
+  date: string,
+  activitySlots: Array<{ id: number; timeSlot: string; sortOrder: number }>,
+  restaurantIds: number[]
+) {
+  for (const { id, timeSlot, sortOrder } of activitySlots) {
+    await dbRun(
+      "UPDATE wishlist_items SET time_slot = ?, sort_order = ? WHERE id = ?",
+      [timeSlot, sortOrder, id]
+    );
+  }
+  for (const id of restaurantIds) {
+    const existing = await dbAll<{ activity_date: string | null }>(
+      "SELECT activity_date FROM restaurants WHERE id = ?", [id]
+    );
+    if (existing[0] && !existing[0].activity_date) {
+      await dbRun("UPDATE restaurants SET activity_date = ? WHERE id = ?", [date, id]);
+    }
+  }
   revalidatePath("/itinerary", "layout");
 }
 
