@@ -17,6 +17,7 @@ import { assignRestaurantToDay, unassignRestaurant, addAndAssignRestaurant } fro
 import FamilySection from "./FamilySection";
 import DayItemRow from "./DayItemRow";
 import AddItemForm from "./AddItemForm";
+import ActivityDetailModal from "./ActivityDetailModal";
 
 const DayMapWrapper = dynamic(() => import("@/components/map/DayMapWrapper"), {
   ssr: false,
@@ -241,6 +242,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
   const [allBusyDays, setAllBusyDays] = useState<Record<string, { excess: WishlistItem[]; nextDay: ItineraryDay | null }>>({});
   const [restaurantSearching, setRestaurantSearching] = useState<"lunch" | "dinner" | null>(null);
   const [restaurantSuggestions, setRestaurantSuggestions] = useState<{ meal: "lunch" | "dinner"; results: PlaceResult[] } | null>(null);
+  const [detailActivity, setDetailActivity] = useState<WishlistItem | null>(null);
   const autoSuggestRef = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -471,29 +473,17 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                   <ul className="mt-1.5 space-y-1">
                     {dayActivities.map((a) => (
                       <li key={a.id}>
-                        {a.url ? (
-                          <a
-                            href={a.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="flex items-center gap-1.5 text-xs text-amber-600 hover:text-amber-800 hover:underline group"
-                          >
-                            {a.image_url
-                              ? <img src={a.image_url} alt="" className="w-5 h-5 rounded object-cover shrink-0" />
-                              : <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                            }
-                            <span className="truncate">{a.title}</span>
-                          </a>
-                        ) : (
-                          <span className="flex items-center gap-1.5 text-xs text-gray-500">
-                            {a.image_url
-                              ? <img src={a.image_url} alt="" className="w-5 h-5 rounded object-cover shrink-0" />
-                              : <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                            }
-                            <span className="truncate">{a.title}</span>
-                          </span>
-                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setDetailActivity(a); }}
+                          className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-amber-700 w-full text-left"
+                        >
+                          {a.image_url
+                            ? <img src={a.image_url} alt="" className="w-5 h-5 rounded object-cover shrink-0" />
+                            : <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                          }
+                          <span className="truncate">{a.title}</span>
+                        </button>
                       </li>
                     ))}
                   </ul>
@@ -653,30 +643,21 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                       return (
                         <div key={activity.id} className="px-4 py-3 flex items-center gap-3 bg-amber-50/40">
                           <span className="text-xs font-bold text-amber-600 w-16 shrink-0">{time}</span>
+                          <button
+                            type="button"
+                            onClick={() => setDetailActivity(activity)}
+                            className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                          >
                           {activity.image_url && (
                             <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0">
                               <img src={activity.image_url} alt="" className="w-full h-full object-cover" />
                             </div>
                           )}
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-gray-800">{activity.title}</p>
-                            <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                              {activity.url && (
-                                <a href={activity.url} target="_blank" rel="noopener noreferrer"
-                                  className="text-xs text-amber-600 hover:underline inline-flex items-center gap-1">
-                                  More info
-                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-                                </a>
-                              )}
-                              {activity.wiki_url && (
-                                <a href={activity.wiki_url} target="_blank" rel="noopener noreferrer"
-                                  className="text-xs text-blue-500 hover:underline inline-flex items-center gap-1">
-                                  Learn More
-                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-                                </a>
-                              )}
-                            </div>
+                            <p className="text-sm font-semibold text-gray-800 hover:underline">{activity.title}</p>
+                            {activity.address && <p className="text-xs text-gray-400 truncate mt-0.5">{activity.address}</p>}
                           </div>
+                          </button>
                           {interested.length > 0 && (
                             <div className="flex items-center gap-1 shrink-0">
                               {interested.map((f) => (
@@ -697,38 +678,34 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                       const isPinned = selectedActivityIds.has(a.id);
                       const interested = FAMILIES.filter((f) => a[FAMILY_INTEREST[f.key]] as number);
                       return (
-                        <div key={a.id} onClick={() => toggleActivity(a.id)}
-                          className={`px-4 py-3 flex items-center gap-3 cursor-pointer transition-colors ${isPinned ? "bg-amber-50" : "hover:bg-gray-50"}`}
+                        <div key={a.id}
+                          className={`px-4 py-3 flex items-center gap-3 transition-colors ${isPinned ? "bg-amber-50" : "hover:bg-gray-50"}`}
                         >
-                          <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-colors ${isPinned ? "bg-amber-500 text-white" : "bg-gray-100 text-gray-400"}`}>
+                          <button
+                            type="button"
+                            onClick={() => toggleActivity(a.id)}
+                            className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-colors ${isPinned ? "bg-amber-500 text-white" : "bg-gray-100 text-gray-400 hover:bg-amber-100"}`}
+                            title="Toggle on map"
+                          >
                             <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
                               <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
                             </svg>
-                          </div>
-                          {a.image_url && (
-                            <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0">
-                              <img src={a.image_url} alt="" className="w-full h-full object-cover" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDetailActivity(a)}
+                            className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                          >
+                            {a.image_url && (
+                              <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0">
+                                <img src={a.image_url} alt="" className="w-full h-full object-cover" />
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className={`text-sm font-semibold hover:underline ${isPinned ? "text-amber-900" : "text-gray-800"}`}>{a.title}</p>
+                              {a.address && <p className="text-xs text-gray-400 truncate mt-0.5">{a.address}</p>}
                             </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-semibold ${isPinned ? "text-amber-900" : "text-gray-800"}`}>{a.title}</p>
-                            <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                              {a.url && (
-                                <a href={a.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
-                                  className="text-xs text-amber-600 hover:underline inline-flex items-center gap-1">
-                                  More info
-                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-                                </a>
-                              )}
-                              {a.wiki_url && (
-                                <a href={a.wiki_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
-                                  className="text-xs text-blue-500 hover:underline inline-flex items-center gap-1">
-                                  Learn More
-                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-                                </a>
-                              )}
-                            </div>
-                          </div>
+                          </button>
                           {interested.length > 0 && (
                             <div className="flex items-center gap-1 shrink-0">
                               {interested.map((f) => (
@@ -947,6 +924,14 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
             </div>
           </div>
         </div>
+      )}
+
+      {/* Activity detail modal */}
+      {detailActivity && (
+        <ActivityDetailModal
+          activity={detailActivity}
+          onClose={() => setDetailActivity(null)}
+        />
       )}
     </div>
   );
