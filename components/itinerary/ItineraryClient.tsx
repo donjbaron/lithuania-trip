@@ -455,9 +455,17 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                 <p className="text-xl sm:text-2xl font-bold text-gray-900 leading-tight">
                   {formatDate(day.trip_date)}
                 </p>
-                {day.summary && (
-                  <p className="text-sm text-gray-400 mt-1 line-clamp-2">{day.summary}</p>
-                )}
+                {(() => {
+                  const titles = dayActivities.map((a) => a.title);
+                  const preview = titles.slice(0, 4).join(", ");
+                  const overflow = titles.length > 4 ? ` +${titles.length - 4}` : "";
+                  const desc = day.summary
+                    ? titles.length > 0 ? `${day.summary} — ${preview}${overflow}` : day.summary
+                    : preview + overflow;
+                  return desc ? (
+                    <p className="text-xs text-gray-400 mt-1 line-clamp-3 leading-snug">{desc}</p>
+                  ) : null;
+                })()}
                 {allBusyDays[day.trip_date] && (
                   <button
                     onClick={(e) => { e.stopPropagation(); openWithSuggestion(day.trip_date); }}
