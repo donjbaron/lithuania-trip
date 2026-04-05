@@ -258,6 +258,7 @@ function recomputeSlotTimes(
 }
 
 function fmtDuration(mins: number): string {
+  if (mins === 0) return "0m";
   if (mins < 60) return `${mins}m`;
   const h = Math.floor(mins / 60);
   const m = mins % 60;
@@ -436,7 +437,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
 
   function changeDuration(id: number, delta: number) {
     const current = getDuration(id);
-    const next = Math.max(30, current + delta);
+    const next = Math.max(0, current + delta);
     setLocalDurations(prev => ({ ...prev, [id]: next }));
     updateActivityDuration(id, next).catch(() => {});
   }
@@ -595,9 +596,12 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     const nextDay = idx >= 0 && idx < days.length - 1 ? days[idx + 1] : null;
 
     const date = selectedDay?.trip_date ?? "";
+    const city = selectedDay?.city ?? null;
+    const assignedBreakfast = restaurants.find(r => r.meal_type === "breakfast" && r.city === city) ?? null;
     const assignedLunch = restaurants.find(r => r.activity_date === date && r.meal_type === "lunch") ?? null;
     const assignedDinner = restaurants.find(r => r.activity_date === date && r.meal_type === "dinner") ?? null;
     const enrichedSlots: ItinerarySlot[] = slots.map(s => {
+      if (s.type === "meal" && s.label === "Breakfast" && assignedBreakfast) return { ...s, restaurant: assignedBreakfast };
       if (s.type === "meal" && s.label === "Lunch" && assignedLunch) return { ...s, restaurant: assignedLunch };
       return s;
     });

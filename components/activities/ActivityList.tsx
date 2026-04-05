@@ -84,6 +84,7 @@ function InsertLine() {
 }
 
 function fmtDuration(mins: number): string {
+  if (mins === 0) return "0m";
   if (mins < 60) return `${mins}m`;
   const h = Math.floor(mins / 60);
   const m = mins % 60;
@@ -113,7 +114,7 @@ function ActivityRow({
   const displayDuration = localDuration ?? item.duration_mins ?? 90;
 
   function changeDuration(delta: number) {
-    const next = Math.max(30, displayDuration + delta);
+    const next = Math.max(0, displayDuration + delta);
     setLocalDuration(next);
     updateActivityDuration(item.id, next).catch(() => {});
   }

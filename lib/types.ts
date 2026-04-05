@@ -71,7 +71,7 @@ export interface Restaurant {
   id: number;
   name: string;
   city: string | null;
-  meal_type: "lunch" | "dinner" | null;
+  meal_type: "breakfast" | "lunch" | "dinner" | null;
   activity_date: string | null;
   url: string | null;
   address: string | null;

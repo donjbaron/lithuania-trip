@@ -125,6 +125,22 @@ async function initSchema() {
     try { await client.execute(sql); } catch { /* column already exists */ }
   }
 
+  // Seed breakfast restaurants by city if none exist yet
+  const { rows: bfRows } = await client.execute("SELECT COUNT(*) as c FROM restaurants WHERE meal_type = 'breakfast'");
+  if ((bfRows[0].c as number) === 0) {
+    const breakfasts = [
+      { name: "Neringa", city: "Vilnius", address: "Gedimino pr. 23, Vilnius", lat: 54.6877, lng: 25.2800 },
+      { name: "Hotel Kaunas", city: "Kaunas", address: "Laisvės al. 73, Kaunas", lat: 54.8985, lng: 23.9036 },
+      { name: "Mana", city: "Palanga", address: "Birutės g. 17, Palanga", lat: 55.9183, lng: 21.0691 },
+    ];
+    for (const b of breakfasts) {
+      await client.execute({
+        sql: "INSERT INTO restaurants (name, city, meal_type, address, lat, lng) VALUES (?, ?, 'breakfast', ?, ?, ?)",
+        args: [b.name, b.city, b.address, b.lat, b.lng],
+      });
+    }
+  }
+
   // Seed the 7 trip days if the table is empty
   const { rows } = await client.execute("SELECT COUNT(*) as c FROM itinerary_days");
   if ((rows[0].c as number) === 0) {
