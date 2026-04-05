@@ -101,7 +101,7 @@ interface Props {
 }
 
 type ItinerarySlot =
-  | { type: "meal"; label: string; time: string }
+  | { type: "meal"; label: string; time: string; restaurant?: Restaurant }
   | { type: "activity"; activity: WishlistItem; time: string };
 
 function geoDistance(a: WishlistItem, b: WishlistItem) {
@@ -251,6 +251,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
   const [orderSaved, setOrderSaved] = useState(false);
   const [skippedActivityIds, setSkippedActivityIds] = useState<Set<number>>(new Set());
   const [travelLegs, setTravelLegs] = useState<Array<{ duration: string; mode: "walk" | "drive" } | null>>([]);
+  const [routePoints, setRoutePoints] = useState<{ lat: number; lng: number }[]>([]);
   const autoSuggestRef = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -291,6 +292,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     setLocalActivityOrder(null);
     setOrderSaved(false);
     setSkippedActivityIds(new Set());
+    setRoutePoints([]);
 
     if (!selectedDate) return;
 
@@ -363,13 +365,13 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     }
   }
 
-  async function calcLegs(orderedActivities: WishlistItem[]) {
-    const empty = new Array(Math.max(0, orderedActivities.length - 1)).fill(null);
-    if (orderedActivities.length < 2) { setTravelLegs(empty); return; }
+  async function calcLegs(stops: { lat: number | null; lng: number | null }[]) {
+    const empty = new Array(Math.max(0, stops.length - 1)).fill(null);
+    if (stops.length < 2) { setTravelLegs(empty); return; }
 
-    const validPairs = orderedActivities
+    const validPairs = stops
       .slice(0, -1)
-      .map((a, i) => ({ a, b: orderedActivities[i + 1], i }))
+      .map((a, i) => ({ a, b: stops[i + 1], i }))
       .filter(p => p.a.lat != null && p.a.lng != null && p.b.lat != null && p.b.lng != null);
 
     const legs = [...empty];
@@ -428,12 +430,36 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     const idx = days.findIndex((d) => d.trip_date === selectedDay?.trip_date);
     const nextDay = idx >= 0 && idx < days.length - 1 ? days[idx + 1] : null;
 
+    const date = selectedDay?.trip_date ?? "";
+    const assignedLunch = restaurants.find(r => r.activity_date === date && r.meal_type === "lunch") ?? null;
+    const assignedDinner = restaurants.find(r => r.activity_date === date && r.meal_type === "dinner") ?? null;
+    const enrichedSlots: ItinerarySlot[] = slots.map(s => {
+      if (s.type === "meal" && s.label === "Lunch" && assignedLunch) return { ...s, restaurant: assignedLunch };
+      return s;
+    });
+    // Append dinner slot after last activity if assigned
+    if (assignedDinner) {
+      const lastActIdx = [...enrichedSlots].reverse().findIndex(s => s.type === "activity");
+      if (lastActIdx >= 0) {
+        const insertAt = enrichedSlots.length - lastActIdx;
+        enrichedSlots.splice(insertAt, 0, { type: "meal", label: "Dinner", time: "7:30 PM", restaurant: assignedDinner });
+      }
+    }
+
+    // Build combined stop list: activities + restaurants in slot order
+    const stops = enrichedSlots.flatMap(s => {
+      if (s.type === "activity") return [{ lat: s.activity.lat, lng: s.activity.lng }];
+      if (s.type === "meal" && s.restaurant) return [{ lat: s.restaurant.lat, lng: s.restaurant.lng }];
+      return [];
+    });
+
     setBusySuggestion(excess.length > 0 ? { excess, nextDay } : null);
-    setItinerarySlots(slots);
+    setItinerarySlots(enrichedSlots);
     setRouteIds([]);
+    setRoutePoints([]);
     setSelectedActivityIds(new Set());
     setItinerarySuggested(true);
-    calcLegs(timed.map(t => t.activity)).catch(() => {});
+    calcLegs(stops).catch(() => {});
   }
 
   function toggleActivity(id: number) {
@@ -626,7 +652,13 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
           </div>
 
           <div className="p-6 space-y-6">
-            <DayMapWrapper hotels={hotelsForDay} activities={mappedActivities} routeIds={routeIds} />
+            <DayMapWrapper
+              hotels={hotelsForDay}
+              activities={mappedActivities}
+              routeIds={routeIds}
+              routePoints={routePoints.length > 0 ? routePoints : undefined}
+              restaurantsForDay={selectedDay ? restaurants.filter(r => r.activity_date === selectedDay.trip_date && r.lat != null) : []}
+            />
 
             {/* Activities from Activities tab */}
             {activitiesForDay.length > 0 && (
@@ -651,19 +683,33 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                         skippedActivityIds.has(a.id) ||
                         /\b(arriv|depart|flight|transfer|check.?in|check.?out|train|bus)\b/i.test(a.title);
                       let ids: number[];
+                      let pts: { lat: number; lng: number }[] = [];
                       if (itinerarySuggested) {
                         ids = itinerarySlots
                           .filter((s) => s.type === "activity")
                           .map((s) => (s as Extract<typeof s, { type: "activity" }>).activity)
                           .filter((a) => !exclude(a))
                           .map((a) => a.id);
+                        pts = itinerarySlots.flatMap((s) => {
+                          if (s.type === "activity") {
+                            const a = (s as Extract<typeof s, { type: "activity" }>).activity;
+                            if (!exclude(a) && a.lat != null && a.lng != null) return [{ lat: a.lat, lng: a.lng }];
+                          }
+                          if (s.type === "meal") {
+                            const r = (s as Extract<typeof s, { type: "meal" }>).restaurant;
+                            if (r?.lat != null && r.lng != null) return [{ lat: r.lat, lng: r.lng }];
+                          }
+                          return [];
+                        });
                       } else {
                         const ordered = localActivityOrder
                           ? localActivityOrder.map((id) => activitiesForDay.find((a) => a.id === id)!).filter(Boolean)
                           : activitiesForDay;
                         ids = ordered.filter((a) => !exclude(a)).map((a) => a.id);
+                        pts = ids.map(id => activitiesForDay.find(a => a.id === id)!).filter(a => a?.lat != null).map(a => ({ lat: a.lat!, lng: a.lng! }));
                       }
                       setRouteIds(ids);
+                      setRoutePoints(pts);
                       setSelectedActivityIds(new Set(ids));
                     }}
                     className="text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-600 text-white hover:bg-blue-700 transition-colors"
@@ -721,6 +767,38 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                       return itinerarySlots.map((slot, i) => {
                       if (slot.type === "meal") {
                         const isSunset = slot.label === "Sunset";
+                        const rest = slot.restaurant ?? null;
+                        const isRestaurantStop = rest != null;
+                        if (isRestaurantStop) {
+                          const stopIdx2 = actIdx++;
+                          const leg2 = stopIdx2 > 0 ? (travelLegs[stopIdx2 - 1] ?? null) : null;
+                          return (
+                            <div key={`meal-${slot.label}`}>
+                              {leg2 && (
+                                <div className="px-4 py-1 flex items-center gap-2 bg-white border-b border-gray-100">
+                                  <span className="w-16 shrink-0" />
+                                  <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                                    {leg2.mode === "walk"
+                                      ? <svg className="w-3.5 h-3.5 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M13.5 5.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7z"/></svg>
+                                      : <svg className="w-3.5 h-3.5 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/></svg>
+                                    }
+                                    <span>{leg2.duration} {leg2.mode}</span>
+                                  </div>
+                                </div>
+                              )}
+                              <div className="px-4 py-3 flex items-center gap-3 bg-indigo-50/40 border-b border-gray-100">
+                                <span className="text-xs font-bold text-indigo-500 w-16 shrink-0">{slot.time}</span>
+                                <span className="text-xs font-semibold uppercase tracking-wide text-indigo-400 shrink-0">{slot.label}</span>
+                                {rest.image_url && <img src={rest.image_url} alt={rest.name} className="w-9 h-9 rounded-lg object-cover shrink-0" />}
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-semibold text-gray-800 truncate">{rest.name}</p>
+                                  {rest.cuisine && <p className="text-xs text-indigo-600">{rest.cuisine}</p>}
+                                  {rest.address && <p className="text-xs text-gray-400 truncate">{rest.address}</p>}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
                         return (
                           <div key={`meal-${slot.label}`} className={`px-4 py-2 flex items-center gap-3 ${isSunset ? "bg-orange-50" : "bg-gray-50"}`}>
                             <span className={`text-xs font-bold w-16 shrink-0 ${isSunset ? "text-orange-400" : "text-gray-400"}`}>{slot.time}</span>
@@ -791,8 +869,15 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                               setSlotDragId(null);
                               setSlotInsertBefore(null);
 
-                              const newActOrder = newIds.map(id => activitiesForDay.find(x => x.id === id)!).filter(Boolean);
-                              calcLegs(newActOrder).catch(() => {});
+                              const newStops = newSlots.flatMap((s: ItinerarySlot) => {
+                                if (s.type === "activity") return [{ lat: s.activity.lat, lng: s.activity.lng }];
+                                if (s.type === "meal" && (s as Extract<ItinerarySlot, {type:"meal"}>).restaurant) {
+                                  const r = (s as Extract<ItinerarySlot, {type:"meal"}>).restaurant!;
+                                  return [{ lat: r.lat, lng: r.lng }];
+                                }
+                                return [];
+                              });
+                              calcLegs(newStops).catch(() => {});
 
                               const excessIds = activitiesForDay.filter(a => !newIds.includes(a.id)).map(a => a.id);
                               reorderActivities([...newIds, ...excessIds]);

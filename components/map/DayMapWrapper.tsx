@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import type { Accommodation, WishlistItem } from "@/lib/types";
+import type { Accommodation, WishlistItem, Restaurant } from "@/lib/types";
 
 const GoogleDayMap = dynamic(() => import("./GoogleDayMap"), {
   ssr: false,
@@ -12,6 +12,26 @@ const GoogleDayMap = dynamic(() => import("./GoogleDayMap"), {
   ),
 });
 
-export default function DayMapWrapper({ hotels, activities, routeIds }: { hotels: Accommodation[]; activities: WishlistItem[]; routeIds?: number[] }) {
-  return <GoogleDayMap hotels={hotels} activities={activities} routeIds={routeIds ?? []} />;
+export default function DayMapWrapper({
+  hotels,
+  activities,
+  routeIds,
+  routePoints,
+  restaurantsForDay,
+}: {
+  hotels: Accommodation[];
+  activities: WishlistItem[];
+  routeIds?: number[];
+  routePoints?: { lat: number; lng: number }[];
+  restaurantsForDay?: Restaurant[];
+}) {
+  return (
+    <GoogleDayMap
+      hotels={hotels}
+      activities={activities}
+      routeIds={routeIds ?? []}
+      routePoints={routePoints}
+      restaurantsForDay={restaurantsForDay ?? []}
+    />
+  );
 }

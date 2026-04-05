@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback } from "react";
-import type { Accommodation, WishlistItem } from "@/lib/types";
+import type { Accommodation, WishlistItem, Restaurant } from "@/lib/types";
 import { FAMILIES, CITY_COORDS } from "@/lib/types";
 
 const FAMILY_COLORS: Record<string, string> = {
@@ -100,7 +100,13 @@ function loadGoogleMaps(): Promise<void> {
   return window._gmapsLoading;
 }
 
-export default function GoogleDayMap({ hotels, activities, routeIds }: { hotels: Accommodation[]; activities: WishlistItem[]; routeIds: number[] }) {
+export default function GoogleDayMap({ hotels, activities, routeIds, routePoints, restaurantsForDay }: {
+  hotels: Accommodation[];
+  activities: WishlistItem[];
+  routeIds: number[];
+  routePoints?: { lat: number; lng: number }[];
+  restaurantsForDay?: Restaurant[];
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapRef = useRef<any>(null);
@@ -341,6 +347,37 @@ export default function GoogleDayMap({ hotels, activities, routeIds }: { hotels:
         bounds.extend({ lat, lng });
     }
 
+    // Restaurant markers
+    const forkSvg = (color: string) => `<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 34 34">
+      <circle cx="17" cy="17" r="16" fill="${color}" stroke="white" stroke-width="2.5"/>
+      <text x="17" y="22" text-anchor="middle" fill="white" font-family="system-ui,sans-serif" font-size="16">🍴</text>
+    </svg>`;
+    for (const rest of (restaurantsForDay ?? [])) {
+      if (rest.lat == null || rest.lng == null) continue;
+      const marker = new window.google.maps.Marker({
+        position: { lat: rest.lat, lng: rest.lng },
+        map,
+        title: rest.name,
+        zIndex: 50,
+        icon: {
+          url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(forkSvg("#7C3AED"))}`,
+          scaledSize: new window.google.maps.Size(34, 34),
+          anchor: new window.google.maps.Point(17, 17),
+        },
+      });
+      const infoWindow = new window.google.maps.InfoWindow({
+        content: `<div style="font-family:system-ui,sans-serif;padding:2px 0;max-width:180px">
+          ${rest.image_url ? `<img src="${rest.image_url}" style="width:100%;height:80px;object-fit:cover;border-radius:6px;margin-bottom:6px"/>` : ""}
+          <div style="font-weight:600;font-size:13px">${rest.name}</div>
+          ${rest.cuisine ? `<div style="font-size:11px;color:#7C3AED;margin-top:2px">${rest.cuisine}</div>` : ""}
+          ${rest.address ? `<div style="font-size:11px;color:#666;margin-top:2px">${rest.address}</div>` : ""}
+        </div>`,
+      });
+      marker.addListener("click", () => infoWindow.open(map, marker));
+      markersRef.current.push(marker);
+      bounds.extend({ lat: rest.lat, lng: rest.lng });
+    }
+
     if (validHotels.length === 1 && activitiesWithCoords.length === 0) {
       map.setCenter({ lat: validHotels[0].lat!, lng: validHotels[0].lng! });
       map.setZoom(15);
@@ -349,10 +386,11 @@ export default function GoogleDayMap({ hotels, activities, routeIds }: { hotels:
     }
 
     // Draw route if an ordered list of activity IDs is provided
-    if (routeIds.length > 1) {
-      const path = routeIds
-        .map((id) => activityPositions.get(id))
-        .filter(Boolean) as { lat: number; lng: number }[];
+    const useExplicitPoints = routePoints && routePoints.length > 1;
+    if (useExplicitPoints || routeIds.length > 1) {
+      const path = useExplicitPoints
+        ? routePoints!
+        : (routeIds.map((id) => activityPositions.get(id)).filter(Boolean) as { lat: number; lng: number }[]);
 
       if (path.length > 1) {
         const origin = path[0];
@@ -408,7 +446,7 @@ export default function GoogleDayMap({ hotels, activities, routeIds }: { hotels:
         );
       }
     }
-  }, [hotels, activities, routeIds]);
+  }, [hotels, activities, routeIds, routePoints, restaurantsForDay]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
