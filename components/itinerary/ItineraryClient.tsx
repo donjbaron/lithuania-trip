@@ -289,8 +289,8 @@ function buildDayItinerary(
 } {
   const fixed = activitiesForDay.filter((a) => a.time_slot);
   const flexible = activitiesForDay.filter((a) => !a.time_slot);
-  const withCoords = flexible.filter((a) => a.lat != null && a.lng != null);
-  const withoutCoords = flexible.filter((a) => a.lat == null || a.lng == null);
+  const withCoords = flexible.filter((a) => (a.lat != null && a.lng != null) || !!a.address);
+  const withoutCoords = flexible.filter((a) => a.lat == null && !a.address);
   const sortedFlexible = [...optimizeRoute(withCoords), ...withoutCoords];
 
   const timed: { activity: WishlistItem; mins: number }[] = [];
@@ -502,8 +502,9 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
   function isDraggableSlot(s: ItinerarySlot) {
     return s.type === "activity" || (s.type === "meal" && s.restaurant != null);
   }
-  function slotsToStops(slots: ItinerarySlot[]) {
-    return slots.flatMap(s => {
+  type Stop = { lat: number | null; lng: number | null; address?: string | null };
+  function slotsToStops(slots: ItinerarySlot[]): Stop[] {
+    return slots.flatMap((s): Stop[] => {
       if (s.type === "activity") {
         const a = s.activity;
         if (a.lat != null && a.lng != null) return [{ lat: a.lat, lng: a.lng, address: a.address ?? null }];
@@ -541,7 +542,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     reorderActivities([...actOrder, ...excessIds]);
   }
 
-  async function calcLegs(stops: { lat: number | null; lng: number | null; address?: string | null }[]) {
+  async function calcLegs(stops: Stop[]) {
     const empty = new Array(Math.max(0, stops.length - 1)).fill(null);
     if (stops.length < 2) { setTravelLegs(empty); return; }
 
@@ -631,7 +632,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     }
 
     // Build combined stop list: activities + restaurants in slot order
-    const stops = enrichedSlots.flatMap(s => {
+    const stops: Stop[] = enrichedSlots.flatMap((s): Stop[] => {
       if (s.type === "activity") {
         const a = s.activity;
         if (a.lat != null && a.lng != null) return [{ lat: a.lat, lng: a.lng, address: a.address ?? null }];

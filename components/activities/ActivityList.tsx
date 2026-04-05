@@ -96,6 +96,7 @@ function ActivityRow({
   isDragging,
   showInsertBefore,
   showInsertAfter,
+  autoEdit,
   onDragStart,
   onDragEnd,
   onDragOver,
@@ -104,6 +105,7 @@ function ActivityRow({
   isDragging: boolean;
   showInsertBefore: boolean;
   showInsertAfter: boolean;
+  autoEdit?: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
   onDragOver: (above: boolean) => void;
@@ -111,6 +113,14 @@ function ActivityRow({
   const [editing, setEditing] = useState(false);
   const [localDuration, setLocalDuration] = useState<number | null>(null);
   const rowRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (autoEdit) {
+      setEditing(true);
+      rowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const displayDuration = localDuration ?? item.duration_mins ?? 90;
 
   function changeDuration(delta: number) {
@@ -152,6 +162,7 @@ function ActivityRow({
     <>
       {showInsertBefore && <InsertLine />}
       <div
+        id={`activity-${item.id}`}
         ref={rowRef}
         draggable
         onDragStart={(e) => {
@@ -268,6 +279,11 @@ function ActivityRow({
 
 export default function ActivityList({ items }: { items: WishlistItem[] }) {
   const [dragId, setDragId] = useState<number | null>(null);
+  const [autoEditId] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    const p = new URLSearchParams(window.location.search).get("edit");
+    return p ? parseInt(p, 10) : null;
+  });
   // dropTarget: which day zone is highlighted; insertBefore: id to insert before, or "end"
   const [dropTarget, setDropTarget] = useState<string | "unassigned" | null>(null);
   const [insertBefore, setInsertBefore] = useState<number | "end" | null>(null);
@@ -368,6 +384,7 @@ export default function ActivityList({ items }: { items: WishlistItem[] }) {
                   isDragging={dragId === item.id}
                   showInsertBefore={insertBefore === item.id && dragId !== item.id && dropTarget === groupKey}
                   showInsertAfter={!next && insertBefore === "end" && dropTarget === groupKey && dragId !== null && dragId !== item.id}
+                  autoEdit={autoEditId === item.id}
                   onDragStart={() => { setDragId(item.id); setDropTarget(groupKey); }}
                   onDragEnd={clearDragState}
                   onDragOver={(above) => {
