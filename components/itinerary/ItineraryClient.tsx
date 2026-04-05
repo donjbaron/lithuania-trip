@@ -1290,10 +1290,18 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                 assigned: Restaurant | null;
                 options: Restaurant[];
               }) {
-                const refLoc = getRefLocation(meal);
+                const activitiesWithCoords = activitiesForDay.filter(a => a.lat != null && a.lng != null);
+                const defaultRefLoc = getRefLocation(meal);
+                const defaultRefId = activitiesWithCoords.find(
+                  a => a.lat === defaultRefLoc?.lat && a.lng === defaultRefLoc?.lng
+                )?.id ?? activitiesWithCoords[0]?.id ?? null;
+                const [refActivityId, setRefActivityId] = useState<number | null>(defaultRefId);
+                const refActivity = activitiesWithCoords.find(a => a.id === refActivityId) ?? null;
+                const refLoc = refActivity ? { lat: refActivity.lat!, lng: refActivity.lng! } : defaultRefLoc;
+
                 const isSearchingThis = restaurantSearching === meal;
                 const rawSuggestions = restaurantSuggestions?.meal === meal ? restaurantSuggestions.results : [];
-                // Sort by walking distance from the pre-meal activity, shortest first
+                // Sort by walking distance from selected activity, shortest first
                 const thisSuggestions = refLoc
                   ? [...rawSuggestions].sort((a, b) => {
                       const da = walkMins(refLoc.lat, refLoc.lng, a.lat, a.lng) ?? 9999;
@@ -1323,12 +1331,25 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                           ))}
                         </select>
                       )}
-                      {!assigned && refLoc && (
+                    </div>
+
+                    {/* Suggest nearby: activity picker + button */}
+                    {!assigned && activitiesWithCoords.length > 0 && (
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={refActivityId ?? ""}
+                          onChange={e => setRefActivityId(Number(e.target.value) || null)}
+                          className="text-xs border border-gray-200 rounded-lg px-2 py-1 text-gray-500 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400 flex-1 min-w-0 truncate"
+                        >
+                          {activitiesWithCoords.map(a => (
+                            <option key={a.id} value={a.id}>{a.title}</option>
+                          ))}
+                        </select>
                         <button
                           type="button"
-                          onClick={() => suggestNearbyRestaurant(meal, refLoc.lat, refLoc.lng)}
-                          disabled={isSearchingThis}
-                          className="ml-auto flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 disabled:opacity-50 transition-colors font-medium"
+                          onClick={() => refLoc && suggestNearbyRestaurant(meal, refLoc.lat, refLoc.lng)}
+                          disabled={isSearchingThis || !refLoc}
+                          className="shrink-0 flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 disabled:opacity-50 transition-colors font-medium whitespace-nowrap"
                         >
                           {isSearchingThis
                             ? <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
@@ -1336,14 +1357,14 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                           }
                           Suggest nearby
                         </button>
-                      )}
-                    </div>
+                      </div>
+                    )}
 
                     {/* Nearby suggestions */}
                     {thisSuggestions.length > 0 && (
                       <div className="border border-indigo-100 rounded-xl overflow-hidden divide-y divide-gray-100 bg-white">
                         <p className="px-3 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50">
-                          Nearby restaurants — click to add &amp; assign
+                          Near {refActivity?.title ?? "selected activity"} — click to add &amp; assign
                         </p>
                         {thisSuggestions.map((p, i) => {
                           const mins = refLoc ? walkMins(refLoc.lat, refLoc.lng, p.lat, p.lng) : null;
