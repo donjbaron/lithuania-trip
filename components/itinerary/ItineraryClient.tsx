@@ -299,10 +299,11 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
       const idx = days.findIndex((d) => d.trip_date === selectedDate);
       const nextDay = idx >= 0 && idx < days.length - 1 ? days[idx + 1] : null;
       setItinerarySlots(slots);
-      setRouteIds(timed.map((t) => t.activity.id));
-      setSelectedActivityIds(new Set(timed.map((t) => t.activity.id)));
       setItinerarySuggested(true);
       if (excess.length > 0) setBusySuggestion({ excess, nextDay });
+      // Store timed for Map button, but don't auto-map
+      autoSuggestRef.current = false;
+      void timed; // used below via itinerarySlots
     }
 
     setTimeout(() => panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
@@ -376,8 +377,8 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
 
     setBusySuggestion(excess.length > 0 ? { excess, nextDay } : null);
     setItinerarySlots(slots);
-    setRouteIds(timed.map((t) => t.activity.id));
-    setSelectedActivityIds(new Set(timed.map((t) => t.activity.id)));
+    setRouteIds([]);
+    setSelectedActivityIds(new Set());
     setItinerarySuggested(true);
   }
 
@@ -408,8 +409,8 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
       const idx = days.findIndex((d) => d.trip_date === date);
       const nextDay = idx >= 0 && idx < days.length - 1 ? days[idx + 1] : null;
       setItinerarySlots(slots);
-      setRouteIds(timed.map((t) => t.activity.id));
-      setSelectedActivityIds(new Set(timed.map((t) => t.activity.id)));
+      setRouteIds([]);
+      setSelectedActivityIds(new Set());
       setItinerarySuggested(true);
       if (excess.length > 0) setBusySuggestion({ excess, nextDay });
       setTimeout(() => panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
@@ -607,6 +608,20 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                         );
                       })()}
                     </>
+                  )}
+                  {itinerarySuggested && (
+                    <button
+                      onClick={() => {
+                        const ids = itinerarySlots
+                          .filter((s) => s.type === "activity")
+                          .map((s) => (s as Extract<typeof s, { type: "activity" }>).activity.id);
+                        setRouteIds(ids);
+                        setSelectedActivityIds(new Set(ids));
+                      }}
+                      className="text-xs font-semibold px-2.5 py-1 rounded-full transition-colors bg-blue-600 text-white hover:bg-blue-700"
+                    >
+                      Map itinerary
+                    </button>
                   )}
                   <button
                     onClick={suggestItinerary}
