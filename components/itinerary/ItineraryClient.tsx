@@ -12,7 +12,7 @@ import {
   LITHUANIAN_CITIES,
 } from "@/lib/types";
 import { updateDay } from "@/app/actions/itinerary";
-import { moveActivitiesToDay } from "@/app/actions/activities";
+import { moveActivitiesToDay, reorderActivities } from "@/app/actions/activities";
 import { assignRestaurantToDay, unassignRestaurant, addAndAssignRestaurant } from "@/app/actions/restaurants";
 import FamilySection from "./FamilySection";
 import DayItemRow from "./DayItemRow";
@@ -243,6 +243,8 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
   const [restaurantSearching, setRestaurantSearching] = useState<"lunch" | "dinner" | null>(null);
   const [restaurantSuggestions, setRestaurantSuggestions] = useState<{ meal: "lunch" | "dinner"; results: PlaceResult[] } | null>(null);
   const [detailActivity, setDetailActivity] = useState<WishlistItem | null>(null);
+  const [slotDragId, setSlotDragId] = useState<number | null>(null);
+  const [slotInsertBefore, setSlotInsertBefore] = useState<number | "end" | null>(null);
   const autoSuggestRef = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -648,36 +650,90 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                       }
                       const { activity, time } = slot;
                       const interested = FAMILIES.filter((f) => activity[FAMILY_INTEREST[f.key]] as number);
+                      const isDragging = slotDragId === activity.id;
+                      const showInsert = slotInsertBefore === activity.id && slotDragId !== activity.id;
                       return (
-                        <div key={activity.id} className="px-4 py-3 flex items-center gap-3 bg-amber-50/40">
-                          <span className="text-xs font-bold text-amber-600 w-16 shrink-0">{time}</span>
-                          <button
-                            type="button"
-                            onClick={() => setDetailActivity(activity)}
-                            className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                        <div key={activity.id}>
+                          {showInsert && <div className="h-0.5 bg-blue-500 mx-4" />}
+                          <div
+                            draggable
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData("text/plain", String(activity.id));
+                              e.dataTransfer.effectAllowed = "move";
+                              setTimeout(() => setSlotDragId(activity.id), 0);
+                            }}
+                            onDragEnd={() => { setSlotDragId(null); setSlotInsertBefore(null); }}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              e.dataTransfer.dropEffect = "move";
+                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                              const mid = rect.top + rect.height / 2;
+                              setSlotInsertBefore(e.clientY < mid ? activity.id : "end");
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              const draggedId = Number(e.dataTransfer.getData("text/plain"));
+                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                              const mid = rect.top + rect.height / 2;
+                              const before = e.clientY < mid ? activity.id : null;
+
+                              const actSlots = itinerarySlots.filter(s => s.type === "activity") as Extract<typeof itinerarySlots[number], { type: "activity" }>[];
+                              const ordered = actSlots.map(s => s.activity.id).filter(id => id !== draggedId);
+                              const targetIdx = before != null ? ordered.indexOf(before) : ordered.length;
+                              const newIds = [...ordered.slice(0, targetIdx), draggedId, ...ordered.slice(targetIdx)];
+
+                              // Rebuild slots: keep meal rows, reassign activities to same positions
+                              let ai = 0;
+                              const newSlots = itinerarySlots.map(s => {
+                                if (s.type !== "activity") return s;
+                                const a = activitiesForDay.find(x => x.id === newIds[ai++])!;
+                                return { ...s, activity: a };
+                              });
+                              setItinerarySlots(newSlots);
+                              setRouteIds(newIds);
+                              setSlotDragId(null);
+                              setSlotInsertBefore(null);
+
+                              const excessIds = activitiesForDay.filter(a => !newIds.includes(a.id)).map(a => a.id);
+                              reorderActivities([...newIds, ...excessIds]);
+                            }}
+                            className={`px-4 py-3 flex items-center gap-3 select-none cursor-grab active:cursor-grabbing transition-opacity ${isDragging ? "opacity-40" : "bg-amber-50/40"}`}
                           >
-                          {activity.image_url && (
-                            <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0">
-                              <img src={activity.image_url} alt="" className="w-full h-full object-cover" />
-                            </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-gray-800 hover:underline">{activity.title}</p>
-                            {activity.address && <p className="text-xs text-gray-400 truncate mt-0.5">{activity.address}</p>}
-                          </div>
-                          </button>
-                          {interested.length > 0 && (
-                            <div className="flex items-center gap-1 shrink-0">
-                              {interested.map((f) => (
-                                <div key={f.key} className="w-5 h-5 rounded-full overflow-hidden border border-white shadow-sm">
-                                  <img src={`/families/${f.key}.png`} alt={f.label} className="w-full h-full object-cover" />
+                            <span className="text-xs font-bold text-amber-600 w-16 shrink-0 pointer-events-none">{time}</span>
+                            {/* drag handle */}
+                            <svg className="w-4 h-4 text-gray-300 shrink-0 pointer-events-none" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M8 6a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 14a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4zM8 22a2 2 0 110-4 2 2 0 010 4zm8 0a2 2 0 110-4 2 2 0 010 4z"/>
+                            </svg>
+                            <button
+                              draggable={false}
+                              type="button"
+                              onClick={() => setDetailActivity(activity)}
+                              className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                            >
+                              {activity.image_url && (
+                                <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 pointer-events-none">
+                                  <img src={activity.image_url} alt="" draggable={false} className="w-full h-full object-cover" />
                                 </div>
-                              ))}
-                            </div>
-                          )}
+                              )}
+                              <div className="flex-1 min-w-0 pointer-events-none">
+                                <p className="text-sm font-semibold text-gray-800 hover:underline">{activity.title}</p>
+                                {activity.address && <p className="text-xs text-gray-400 truncate mt-0.5">{activity.address}</p>}
+                              </div>
+                            </button>
+                            {interested.length > 0 && (
+                              <div className="flex items-center gap-1 shrink-0 pointer-events-none">
+                                {interested.map((f) => (
+                                  <div key={f.key} className="w-5 h-5 rounded-full overflow-hidden border border-white shadow-sm">
+                                    <img src={`/families/${f.key}.png`} alt={f.label} draggable={false} className="w-full h-full object-cover" />
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
+                    {slotInsertBefore === "end" && slotDragId !== null && <div className="h-0.5 bg-blue-500 mx-4" />}
                   </div>
                 ) : (
                   /* ── Normal activity list ── */
