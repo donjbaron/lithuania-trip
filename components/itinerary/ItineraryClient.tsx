@@ -131,13 +131,13 @@ function clusterByGap(sorted: WishlistItem[]): [WishlistItem[], WishlistItem[]] 
   }
 
   // Re-sort each cluster independently for optimal within-group ordering
-  return [nearestNeighborSort(sorted.slice(0, bestSplit)), nearestNeighborSort(sorted.slice(bestSplit))];
+  return [optimizeRoute(sorted.slice(0, bestSplit)), optimizeRoute(sorted.slice(bestSplit))];
 }
 
-function nearestNeighborSort(items: WishlistItem[]): WishlistItem[] {
+function nearestNeighborSort(items: WishlistItem[], startIdx = 0): WishlistItem[] {
   if (items.length <= 1) return items;
   const remaining = [...items];
-  const result: WishlistItem[] = [remaining.splice(0, 1)[0]];
+  const result: WishlistItem[] = [remaining.splice(startIdx, 1)[0]];
   while (remaining.length > 0) {
     const last = result[result.length - 1];
     let nearestIdx = 0;
@@ -149,6 +149,54 @@ function nearestNeighborSort(items: WishlistItem[]): WishlistItem[] {
     result.push(remaining.splice(nearestIdx, 1)[0]);
   }
   return result;
+}
+
+function routeLength(items: WishlistItem[]): number {
+  let dist = 0;
+  for (let i = 1; i < items.length; i++) dist += geoDistance(items[i - 1], items[i]);
+  return dist;
+}
+
+// Try every starting point for nearest-neighbor and keep the shortest result.
+function bestNearestNeighbor(items: WishlistItem[]): WishlistItem[] {
+  if (items.length <= 2) return nearestNeighborSort(items);
+  let best: WishlistItem[] = nearestNeighborSort(items, 0);
+  let bestDist = routeLength(best);
+  for (let i = 1; i < items.length; i++) {
+    const route = nearestNeighborSort(items, i);
+    const dist = routeLength(route);
+    if (dist < bestDist) { bestDist = dist; best = route; }
+  }
+  return best;
+}
+
+// 2-opt local search: repeatedly reverse segments that shorten the open path.
+function twoOptImprove(items: WishlistItem[]): WishlistItem[] {
+  const n = items.length;
+  if (n <= 3) return items;
+  let route = [...items];
+  let improved = true;
+  while (improved) {
+    improved = false;
+    for (let i = 0; i < n - 2; i++) {
+      for (let j = i + 2; j < n; j++) {
+        const oldCost = geoDistance(route[i], route[i + 1]) +
+          (j + 1 < n ? geoDistance(route[j], route[j + 1]) : 0);
+        const newCost = geoDistance(route[i], route[j]) +
+          (j + 1 < n ? geoDistance(route[i + 1], route[j + 1]) : 0);
+        if (newCost < oldCost - 1e-10) {
+          route = [...route.slice(0, i + 1), ...route.slice(i + 1, j + 1).reverse(), ...route.slice(j + 1)];
+          improved = true;
+        }
+      }
+    }
+  }
+  return route;
+}
+
+// Full optimization: best nearest-neighbor start + 2-opt refinement.
+function optimizeRoute(items: WishlistItem[]): WishlistItem[] {
+  return twoOptImprove(bestNearestNeighbor(items));
 }
 
 function minsToTime(totalMins: number) {
@@ -185,7 +233,7 @@ function buildDayItinerary(
   const flexible = activitiesForDay.filter((a) => !a.time_slot);
   const withCoords = flexible.filter((a) => a.lat != null && a.lng != null);
   const withoutCoords = flexible.filter((a) => a.lat == null || a.lng == null);
-  const sortedFlexible = [...nearestNeighborSort(withCoords), ...withoutCoords];
+  const sortedFlexible = [...optimizeRoute(withCoords), ...withoutCoords];
 
   const timed: { activity: WishlistItem; mins: number }[] = [];
   fixed.forEach((a) => {
