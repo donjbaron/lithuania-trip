@@ -10,6 +10,7 @@ import {
   type Restaurant,
   FAMILIES,
   LITHUANIAN_CITIES,
+  CITY_COORDS,
 } from "@/lib/types";
 import { updateDay, saveItinerary } from "@/app/actions/itinerary";
 import { moveActivitiesToDay, reorderActivities, updateActivityDuration } from "@/app/actions/activities";
@@ -104,9 +105,21 @@ type ItinerarySlot =
   | { type: "meal"; label: string; time: string; restaurant?: Restaurant }
   | { type: "activity"; activity: WishlistItem; time: string };
 
+function inferCoords(a: WishlistItem): [number, number] | null {
+  if (a.lat != null && a.lng != null) return [a.lat, a.lng];
+  // Try city field, then scan address string for a known city name
+  const cityKey = a.city ?? Object.keys(CITY_COORDS).find(c =>
+    (a.address ?? "").toLowerCase().includes(c.toLowerCase())
+  );
+  return cityKey && CITY_COORDS[cityKey] ? CITY_COORDS[cityKey] : null;
+}
+
 function geoDistance(a: WishlistItem, b: WishlistItem) {
-  const dlat = (a.lat ?? 0) - (b.lat ?? 0);
-  const dlng = (a.lng ?? 0) - (b.lng ?? 0);
+  const ca = inferCoords(a);
+  const cb = inferCoords(b);
+  if (!ca || !cb) return 0;
+  const dlat = ca[0] - cb[0];
+  const dlng = ca[1] - cb[1];
   return Math.sqrt(dlat * dlat + dlng * dlng);
 }
 
@@ -236,7 +249,7 @@ function recomputeSlotTimes(
   legs: Array<{ duration: string; mode: "walk" | "drive" } | null>,
   getDuration: (id: number) => number,
 ): ItinerarySlot[] {
-  const first = slots.find(s => s.type === "activity" || (s.type === "meal" && (s as Extract<ItinerarySlot, {type:"meal"}>).restaurant));
+  const first = slots[0];
   if (!first) return slots;
   const anchorMins = parseMins(first.time);
   let prevEndMins: number | null = null;
