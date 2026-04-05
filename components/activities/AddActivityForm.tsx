@@ -3,7 +3,7 @@
 import { useRef } from "react";
 import { addActivity } from "@/app/actions/activities";
 
-const CITIES = ["Vilnius", "Kaunas", "Palanga"];
+const CITIES = ["Vilnius", "Kaunas", "Trakai", "Klaipeda", "Siauliai", "Palanga", "Other"];
 
 const TRIP_DATES = [
   { value: "2026-07-31", label: "Fri Jul 31 — Day 1" },

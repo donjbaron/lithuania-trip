@@ -107,11 +107,44 @@ export default function GoogleDayMap({ hotels, activities, routeIds }: { hotels:
       };
     });
 
-    // Activity markers: use per-activity coords if set, else fall back to city coords
+    // Geocode activities that have an address but no lat/lng
+    const geocodeCache = new Map<string, { lat: number; lng: number } | null>();
+    const toGeocode = activities.filter(
+      (a) => (a.lat == null || a.lng == null) && a.address
+    );
+    await Promise.all(
+      toGeocode.map(async (a) => {
+        const key = a.address!;
+        if (geocodeCache.has(key)) return;
+        geocodeCache.set(key, null);
+        try {
+          await new Promise<void>((resolve) => {
+            new window.google.maps.Geocoder().geocode(
+              { address: `${a.address}, Lithuania` },
+              (results: any[], status: string) => {
+                if (status === "OK" && results?.[0]?.geometry?.location) {
+                  geocodeCache.set(key, {
+                    lat: results[0].geometry.location.lat(),
+                    lng: results[0].geometry.location.lng(),
+                  });
+                }
+                resolve();
+              }
+            );
+          });
+        } catch { /* ignore */ }
+      })
+    );
+
+    // Activity markers: precise coords > geocoded address > city center
     const activitiesWithCoords = activities
       .map((a) => {
         if (a.lat != null && a.lng != null) {
           return { activity: a, lat: a.lat, lng: a.lng, cityKey: a.city ?? "Lithuania", precise: true };
+        }
+        if (a.address) {
+          const geo = geocodeCache.get(a.address);
+          if (geo) return { activity: a, lat: geo.lat, lng: geo.lng, cityKey: a.city ?? "Lithuania", precise: true };
         }
         const cityKey = Object.keys(CITY_COORDS).find(
           (k) => k.toLowerCase() === (a.city ?? "").toLowerCase()
@@ -235,7 +268,7 @@ export default function GoogleDayMap({ hotels, activities, routeIds }: { hotels:
             <div style="font-family:system-ui,sans-serif;padding:2px 0;max-width:180px">
               ${activity.image_url ? `<img src="${activity.image_url}" style="width:100%;height:90px;object-fit:cover;border-radius:6px;margin-bottom:6px" />` : ""}
               <div style="font-weight:600;font-size:13px;color:#111">${activity.title}</div>
-              <div style="font-size:11px;color:#666;margin-top:2px">${cityKey}</div>
+              <div style="font-size:11px;color:#666;margin-top:2px">${activity.address ?? cityKey}</div>
               <div style="display:flex;gap:8px;margin-top:5px;flex-wrap:wrap">
                 ${activity.url ? `<a href="${activity.url}" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:#D97706;text-decoration:none;">More info ↗</a>` : ""}
                 ${activity.wiki_url ? `<a href="${activity.wiki_url}" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:#3B82F6;text-decoration:none;">Learn More ↗</a>` : ""}

@@ -5,7 +5,7 @@ import Image from "next/image";
 import { FAMILIES, type WishlistItem } from "@/lib/types";
 import { deleteActivity, toggleInterest, updateActivity, setAllInterest } from "@/app/actions/activities";
 
-const CITIES = ["Vilnius", "Kaunas", "Palanga"];
+const CITIES = ["Vilnius", "Kaunas", "Trakai", "Klaipeda", "Siauliai", "Palanga", "Other"];
 const TRIP_DATES = [
   { value: "2026-07-31", label: "Fri Jul 31 — Day 1" },
   { value: "2026-08-01", label: "Sat Aug 1 — Day 2" },

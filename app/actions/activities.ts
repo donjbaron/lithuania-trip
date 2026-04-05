@@ -29,19 +29,33 @@ async function fetchOgImage(url: string): Promise<string | null> {
   }
 }
 
-async function fetchWikiUrl(title: string, city: string | null): Promise<string | null> {
+async function fetchWikiData(title: string, city: string | null): Promise<{ url: string | null; imageUrl: string | null }> {
   try {
     const query = encodeURIComponent(`${title}${city ? " " + city : ""} Lithuania`);
-    const res = await fetch(
+    const searchRes = await fetch(
       `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${query}&srlimit=1&format=json&origin=*`,
       { signal: AbortSignal.timeout(4000) }
     );
-    const data = await res.json();
-    const hit = data?.query?.search?.[0];
-    if (!hit) return null;
-    return `https://en.wikipedia.org/wiki/${encodeURIComponent(hit.title.replace(/ /g, "_"))}`;
+    const searchData = await searchRes.json();
+    const hit = searchData?.query?.search?.[0];
+    if (!hit) return { url: null, imageUrl: null };
+
+    const wikiTitle = hit.title.replace(/ /g, "_");
+    const url = `https://en.wikipedia.org/wiki/${encodeURIComponent(wikiTitle)}`;
+
+    const thumbRes = await fetch(
+      `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(wikiTitle)}&prop=pageimages&pithumbsize=400&format=json&origin=*`,
+      { signal: AbortSignal.timeout(4000) }
+    );
+    const thumbData = await thumbRes.json();
+    const pages = thumbData?.query?.pages ?? {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const page = Object.values(pages)[0] as any;
+    const imageUrl: string | null = page?.thumbnail?.source ?? null;
+
+    return { url, imageUrl };
   } catch {
-    return null;
+    return { url: null, imageUrl: null };
   }
 }
 
@@ -50,10 +64,12 @@ export async function addActivity(formData: FormData) {
   if (!name) return;
   const url = (formData.get("url") as string) || null;
   const city = (formData.get("city") as string) || null;
-  const [imageUrl, wikiUrl] = await Promise.all([
+  const [ogImage, wikiData] = await Promise.all([
     url ? fetchOgImage(url) : Promise.resolve(null),
-    fetchWikiUrl(name, city),
+    fetchWikiData(name, city),
   ]);
+  const imageUrl = ogImage ?? wikiData.imageUrl;
+  const wikiUrl = wikiData.url;
   await dbRun(
     `INSERT INTO wishlist_items
        (title, location, url, city, activity_date, time_slot,
@@ -88,15 +104,34 @@ export async function updateActivity(id: number, formData: FormData) {
   );
 
   let imageUrl = existing?.image_url ?? null;
-  if (url && url !== existing?.url) {
-    imageUrl = await fetchOgImage(url);
-  } else if (!url) {
-    imageUrl = null;
+  let wikiUrl = existing?.wiki_url ?? null;
+
+  const needsNewImage = (url && url !== existing?.url) || (!url && imageUrl);
+  const needsWiki = name !== existing?.title && !wikiUrl;
+
+  if (needsNewImage || needsWiki) {
+    const [ogImage, wikiData] = await Promise.all([
+      needsNewImage && url ? fetchOgImage(url) : Promise.resolve(null),
+      needsWiki ? fetchWikiData(name, city) : Promise.resolve({ url: null, imageUrl: null }),
+    ]);
+    if (needsNewImage) imageUrl = url ? (ogImage ?? wikiData.imageUrl ?? existing?.image_url ?? null) : null;
+    if (needsWiki) wikiUrl = wikiData.url;
   }
 
-  let wikiUrl = existing?.wiki_url ?? null;
-  if (name !== existing?.title && !wikiUrl) {
-    wikiUrl = await fetchWikiUrl(name, city);
+  // If still no image but has wiki url, try fetching wiki thumbnail now
+  if (!imageUrl && wikiUrl) {
+    try {
+      const wikiTitle = wikiUrl.split("/wiki/")[1];
+      const thumbRes = await fetch(
+        `https://en.wikipedia.org/w/api.php?action=query&titles=${wikiTitle}&prop=pageimages&pithumbsize=400&format=json&origin=*`,
+        { signal: AbortSignal.timeout(4000) }
+      );
+      const thumbData = await thumbRes.json();
+      const pages = thumbData?.query?.pages ?? {};
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const page = Object.values(pages)[0] as any;
+      imageUrl = page?.thumbnail?.source ?? null;
+    } catch { /* ignore */ }
   }
 
   await dbRun(
