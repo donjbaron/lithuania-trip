@@ -21,7 +21,7 @@ declare global {
 }
 
 /** Draws an image into a circular canvas and returns a data URL. Falls back to null on error. */
-function makeCircularIcon(src: string, size = 44): Promise<string | null> {
+function makeCircularIcon(src: string, size = 44, stepNumber?: number): Promise<string | null> {
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
@@ -49,11 +49,41 @@ function makeCircularIcon(src: string, size = 44): Promise<string | null> {
       ctx.strokeStyle = "#F59E0B";
       ctx.lineWidth = 3;
       ctx.stroke();
+      // Step number badge (bottom-right)
+      if (stepNumber != null) {
+        const br = size * 0.28;
+        const bx = size - br + 2;
+        const by = size - br + 2;
+        ctx.beginPath();
+        ctx.arc(bx, by, br, 0, Math.PI * 2);
+        ctx.fillStyle = "#1D4ED8";
+        ctx.fill();
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = "#fff";
+        ctx.font = `bold ${Math.round(br * 1.2)}px system-ui,sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(String(stepNumber), bx, by + 1);
+      }
       resolve(canvas.toDataURL());
     };
     img.onerror = () => resolve(null);
     img.src = src;
   });
+}
+
+/** Numbered pin SVG for route steps without an image. */
+function makeNumberedPinSvg(stepNumber: number): string {
+  const label = String(stepNumber);
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="38" height="50" viewBox="0 0 38 50">
+    <path d="M19 0C8.507 0 0 8.507 0 19c0 12.426 19 31 19 31s19-18.574 19-31C38 8.507 29.493 0 19 0z"
+      fill="#1D4ED8" stroke="white" stroke-width="2.5"/>
+    <circle cx="19" cy="19" r="11" fill="white" opacity="0.2"/>
+    <text x="19" y="25" text-anchor="middle" fill="white"
+      font-family="system-ui,sans-serif" font-size="${label.length > 1 ? 13 : 15}" font-weight="bold">${label}</text>
+  </svg>`;
 }
 
 function loadGoogleMaps(): Promise<void> {
@@ -159,15 +189,22 @@ export default function GoogleDayMap({ hotels, activities, routeIds }: { hotels:
     const hasPoints = validHotels.length > 0 || activitiesWithCoords.length > 0;
     if (!hasPoints) return;
 
+    // Build step-number lookup for route mode
+    const stepByActivityId = new Map<number, number>();
+    routeIds.forEach((id, idx) => stepByActivityId.set(id, idx + 1));
+    const inRoute = routeIds.length > 1;
+
     // Pre-load circular image icons for activities that have images
     const iconCache = new Map<string, string>();
     await Promise.all(
       activitiesWithCoords
         .filter(({ activity }) => activity.image_url)
         .map(async ({ activity }) => {
-          if (!iconCache.has(activity.image_url!)) {
-            const dataUrl = await makeCircularIcon(activity.image_url!);
-            if (dataUrl) iconCache.set(activity.image_url!, dataUrl);
+          const step = inRoute ? stepByActivityId.get(activity.id) : undefined;
+          const cacheKey = `${activity.image_url!}__${step ?? ""}`;
+          if (!iconCache.has(cacheKey)) {
+            const dataUrl = await makeCircularIcon(activity.image_url!, 44, step);
+            if (dataUrl) iconCache.set(cacheKey, dataUrl);
           }
         })
     );
@@ -248,18 +285,37 @@ export default function GoogleDayMap({ hotels, activities, routeIds }: { hotels:
       const { lat, lng } = pos;
       activityPositions.set(activity.id, { lat, lng });
 
-        const imgDataUrl = activity.image_url ? iconCache.get(activity.image_url) : undefined;
-        const iconUrl = imgDataUrl ?? `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(fallbackStarSvg)}`;
-        const iconSize = imgDataUrl ? 44 : 36;
+        const step = inRoute ? stepByActivityId.get(activity.id) : undefined;
+        const cacheKey = activity.image_url ? `${activity.image_url}__${step ?? ""}` : undefined;
+        const imgDataUrl = cacheKey ? iconCache.get(cacheKey) : undefined;
+
+        let iconUrl: string;
+        let iconSize: number;
+        let anchorY: number;
+
+        if (imgDataUrl) {
+          iconUrl = imgDataUrl;
+          iconSize = 44;
+          anchorY = iconSize / 2;
+        } else if (step != null) {
+          iconUrl = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(makeNumberedPinSvg(step))}`;
+          iconSize = 38;
+          anchorY = 50; // pin tip at bottom
+        } else {
+          iconUrl = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(fallbackStarSvg)}`;
+          iconSize = 36;
+          anchorY = iconSize / 2;
+        }
 
         const marker = new window.google.maps.Marker({
           position: { lat, lng },
           map,
           title: activity.title,
+          zIndex: step != null ? 100 + step : 1,
           icon: {
             url: iconUrl,
-            scaledSize: new window.google.maps.Size(iconSize, iconSize),
-            anchor: new window.google.maps.Point(iconSize / 2, iconSize / 2),
+            scaledSize: new window.google.maps.Size(iconSize, step != null && !imgDataUrl ? 50 : iconSize),
+            anchor: new window.google.maps.Point(iconSize / 2, anchorY),
           },
         });
 
@@ -299,26 +355,22 @@ export default function GoogleDayMap({ hotels, activities, routeIds }: { hotels:
           path,
           map,
           geodesic: true,
-          strokeColor: "#F59E0B",
-          strokeOpacity: 0,
-          strokeWeight: 3,
+          strokeColor: "#1D4ED8",
+          strokeOpacity: 0.7,
+          strokeWeight: 4,
           icons: [
-            {
-              icon: { path: "M 0,-1 0,1", strokeOpacity: 0.85, strokeWeight: 3, scale: 4 },
-              offset: "0",
-              repeat: "16px",
-            },
             {
               icon: {
                 path: window.google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-                scale: 3,
-                strokeColor: "#D97706",
-                fillColor: "#D97706",
+                scale: 4,
+                strokeColor: "#fff",
+                strokeWeight: 1.5,
+                fillColor: "#1D4ED8",
                 fillOpacity: 1,
                 strokeOpacity: 1,
               },
               offset: "50%",
-              repeat: "120px",
+              repeat: "80px",
             },
           ],
         });
