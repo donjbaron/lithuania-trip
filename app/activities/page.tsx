@@ -8,7 +8,7 @@ import BackfillAddressesButton from "@/components/activities/BackfillAddressesBu
 
 export default async function ActivitiesPage() {
   const items = await dbAll<WishlistItem>(
-    "SELECT * FROM wishlist_items ORDER BY city ASC, created_at ASC"
+    "SELECT * FROM wishlist_items ORDER BY activity_date ASC, time_slot ASC, created_at ASC"
   );
 
   return (
