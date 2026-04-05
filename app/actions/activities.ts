@@ -185,6 +185,11 @@ export async function moveActivitiesToDay(ids: number[], newDate: string) {
   revalidate();
 }
 
+export async function unassignActivityDate(id: number) {
+  await dbRun("UPDATE wishlist_items SET activity_date = NULL WHERE id = ?", [id]);
+  revalidate();
+}
+
 export async function backfillActivityAddresses() {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   if (!apiKey) return { updated: 0 };
