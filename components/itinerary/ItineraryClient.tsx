@@ -342,21 +342,24 @@ function fmtDuration(mins: number): string {
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
-// Compute sunset time for a given date and location (Lithuania summer = EEST = UTC+3)
-function computeSunset(dateStr: string, lat: number, lng: number): string {
-  const y = parseInt(dateStr.slice(0, 4));
-  const start = Date.UTC(y, 0, 1);
-  const day = Date.UTC(parseInt(dateStr.slice(0, 4)), parseInt(dateStr.slice(5, 7)) - 1, parseInt(dateStr.slice(8, 10)));
-  const dayOfYear = Math.round((day - start) / 86400000) + 1;
-  const latRad = lat * Math.PI / 180;
-  const decl = -23.45 * Math.PI / 180 * Math.cos((2 * Math.PI * (dayOfYear + 10)) / 365);
-  const cosHA = -Math.tan(latRad) * Math.tan(decl);
-  if (cosHA >= 1) return "No sunset";
-  if (cosHA <= -1) return "Midnight Sun";
-  const hourAngle = (Math.acos(cosHA) * 180) / Math.PI;
-  const sunsetUTC = 12 + hourAngle / 15 - lng / 15;
-  const sunsetMins = Math.round(((sunsetUTC + 3) % 24) * 60); // EEST = UTC+3
-  return minsToTime(Math.floor(sunsetMins / 60) * 60 + (sunsetMins % 60));
+// Verified sunset times for Vilnius (54.69°N, 25.28°E) per trip date — source: timeanddate.com, EEST (UTC+3)
+const VILNIUS_LNG = 25.28;
+const VILNIUS_SUNSET_MINS: Record<string, number> = {
+  "2026-07-31": 21 * 60 + 22, // 9:22 PM
+  "2026-08-01": 21 * 60 + 20, // 9:20 PM
+  "2026-08-02": 21 * 60 + 18, // 9:18 PM
+  "2026-08-03": 21 * 60 + 16, // 9:16 PM
+  "2026-08-04": 21 * 60 + 14, // 9:14 PM
+  "2026-08-05": 21 * 60 + 12, // 9:12 PM
+  "2026-08-06": 21 * 60 + 10, // 9:10 PM
+};
+
+// For cities west of Vilnius (Klaipeda, Palanga) sun sets later by ~4 min/degree of longitude
+function computeSunset(dateStr: string, lng: number): string | null {
+  const baseMins = VILNIUS_SUNSET_MINS[dateStr];
+  if (baseMins == null) return null;
+  const lngOffsetMins = Math.round((VILNIUS_LNG - lng) * 4);
+  return minsToTime(baseMins + lngOffsetMins);
 }
 
 const TOO_BUSY = 5; // max routable activities before warning
@@ -725,7 +728,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     const assignedLunch = restaurants.find(r => r.activity_date === date && r.meal_type === "lunch") ?? null;
     const assignedDinner = restaurants.find(r => r.activity_date === date && r.meal_type === "dinner") ?? null;
     const cityCoords = city ? (CITY_COORDS[city] ?? CITY_COORDS["Vilnius"]) : CITY_COORDS["Vilnius"];
-    const sunsetTime = date ? computeSunset(date, cityCoords[0], cityCoords[1]) : null;
+    const sunsetTime = date ? computeSunset(date, cityCoords[1]) : null;
 
     // 6. Build slots, scheduling forward from real travel times
     const slots: ItinerarySlot[] = [];
