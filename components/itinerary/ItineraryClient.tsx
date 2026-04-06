@@ -342,16 +342,22 @@ function fmtDuration(mins: number): string {
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
-// Vilnius-area sunset times for each trip day (Lithuania summer, UTC+3)
-const SUNSET: Record<string, string> = {
-  "2026-07-31": "9:10 PM",
-  "2026-08-01": "9:07 PM",
-  "2026-08-02": "9:04 PM",
-  "2026-08-03": "9:00 PM",
-  "2026-08-04": "8:56 PM", // Palanga coast — slightly west, similar time
-  "2026-08-05": "8:52 PM",
-  "2026-08-06": "8:48 PM",
-};
+// Compute sunset time for a given date and location (Lithuania summer = EEST = UTC+3)
+function computeSunset(dateStr: string, lat: number, lng: number): string {
+  const y = parseInt(dateStr.slice(0, 4));
+  const start = Date.UTC(y, 0, 1);
+  const day = Date.UTC(parseInt(dateStr.slice(0, 4)), parseInt(dateStr.slice(5, 7)) - 1, parseInt(dateStr.slice(8, 10)));
+  const dayOfYear = Math.round((day - start) / 86400000) + 1;
+  const latRad = lat * Math.PI / 180;
+  const decl = -23.45 * Math.PI / 180 * Math.cos((2 * Math.PI * (dayOfYear + 10)) / 365);
+  const cosHA = -Math.tan(latRad) * Math.tan(decl);
+  if (cosHA >= 1) return "No sunset";
+  if (cosHA <= -1) return "Midnight Sun";
+  const hourAngle = (Math.acos(cosHA) * 180) / Math.PI;
+  const sunsetUTC = 12 + hourAngle / 15 - lng / 15;
+  const sunsetMins = Math.round(((sunsetUTC + 3) % 24) * 60); // EEST = UTC+3
+  return minsToTime(Math.floor(sunsetMins / 60) * 60 + (sunsetMins % 60));
+}
 
 const TOO_BUSY = 5; // max routable activities before warning
 
@@ -718,7 +724,8 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     // 5. Assign meals
     const assignedLunch = restaurants.find(r => r.activity_date === date && r.meal_type === "lunch") ?? null;
     const assignedDinner = restaurants.find(r => r.activity_date === date && r.meal_type === "dinner") ?? null;
-    const sunsetTime = SUNSET[date] ?? null;
+    const cityCoords = city ? (CITY_COORDS[city] ?? CITY_COORDS["Vilnius"]) : CITY_COORDS["Vilnius"];
+    const sunsetTime = date ? computeSunset(date, cityCoords[0], cityCoords[1]) : null;
 
     // 6. Build slots, scheduling forward from real travel times
     const slots: ItinerarySlot[] = [];
@@ -1175,14 +1182,21 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                       }
                       function TravelLeg({ leg }: { leg: { duration: string; mode: "walk" | "drive" } }) {
                         return (
-                          <div className="px-4 py-1 flex items-center gap-2 bg-white border-b border-gray-100">
-                            <span className="w-16 shrink-0" />
-                            <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                          <div className="px-4 flex items-stretch gap-2">
+                            {/* timeline vertical line in the time column */}
+                            <div className="w-16 shrink-0 flex justify-center">
+                              <div className="w-px bg-gray-200" />
+                            </div>
+                            <div className="flex items-center gap-1.5 text-xs text-gray-400 py-1">
+                              {/* downward arrow — travel leads to the item below */}
+                              <svg className="w-3 h-3 text-gray-300 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M11 4v12.17l-3.59-3.58L6 14l6 6 6-6-1.41-1.41L13 16.17V4z"/>
+                              </svg>
                               {leg.mode === "walk"
                                 ? <svg className="w-3.5 h-3.5 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M13.5 5.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7z"/></svg>
                                 : <svg className="w-3.5 h-3.5 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/></svg>
                               }
-                              <span>{leg.duration} {leg.mode}</span>
+                              <span>{leg.duration} {leg.mode === "drive" ? "by car" : "on foot"} to next stop</span>
                             </div>
                           </div>
                         );
