@@ -13,7 +13,7 @@ import {
   CITY_COORDS,
 } from "@/lib/types";
 import { updateDay, saveItinerary } from "@/app/actions/itinerary";
-import { moveActivitiesToDay, reorderActivities, updateActivityDuration, updateActivityCoords } from "@/app/actions/activities";
+import { moveActivitiesToDay, reorderActivities, updateActivityDuration, updateActivityCoords, unassignActivityDate } from "@/app/actions/activities";
 import { assignRestaurantToDay, unassignRestaurant, addAndAssignRestaurant } from "@/app/actions/restaurants";
 import FamilySection from "./FamilySection";
 import DayItemRow from "./DayItemRow";
@@ -383,6 +383,10 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
   const [slotInsertBefore, setSlotInsertBefore] = useState<string | "end" | null>(null);
   const [normalDragId, setNormalDragId] = useState<number | null>(null);
   const [normalInsertBefore, setNormalInsertBefore] = useState<number | "end" | null>(null);
+  // Tile-level drag-and-drop (overview grid)
+  const [localActivities, setLocalActivities] = useState<WishlistItem[]>(activities);
+  const [tileDragActivityId, setTileDragActivityId] = useState<number | null>(null);
+  const [tileDragOverDate, setTileDragOverDate] = useState<string | null>(null);
   const [localActivityOrder, setLocalActivityOrder] = useState<number[] | null>(null);
   const [orderSaved, setOrderSaved] = useState(false);
   const [itinerarySaved, setItinerarySaved] = useState(false);
@@ -405,6 +409,9 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     : [];
   const sharedItems = selectedItems.filter((i) => !i.family_group || i.family_group === "all");
   const mappedActivities = activitiesForDay.filter((a) => selectedActivityIds.has(a.id));
+
+  // Sync localActivities when server re-renders with fresh data
+  useEffect(() => { setLocalActivities(activities); }, [activities]);
 
   // Flag days with more than TOO_BUSY routable activities
   useEffect(() => {
@@ -876,6 +883,18 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     }
   }
 
+  async function handleTileDrop(activityId: number, newDate: string | null) {
+    // Optimistic update
+    setLocalActivities(prev => prev.map(a => a.id === activityId ? { ...a, activity_date: newDate } : a));
+    setTileDragOverDate(null);
+    setTileDragActivityId(null);
+    if (newDate) {
+      await moveActivitiesToDay([activityId], newDate);
+    } else {
+      await unassignActivityDate(activityId);
+    }
+  }
+
   async function handleUpdateDay(formData: FormData) {
     await updateDay(selectedDay!.id, formData);
     setEditing(false);
@@ -910,18 +929,24 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
         {days.map((day) => {
           const theme = day.city ? (CITY_THEME[day.city] ?? DEFAULT_THEME) : DEFAULT_THEME;
           const isSelected = selectedDate === day.trip_date;
+          const isDragTarget = tileDragOverDate === day.trip_date;
           const dayItems = items.filter((i) => i.day_id === day.id);
-          const dayActivities = activities.filter((a) => a.activity_date === day.trip_date);
+          const dayActivities = localActivities.filter((a) => a.activity_date === day.trip_date);
 
           return (
             <div
               key={day.id}
               onClick={() => select(day.trip_date)}
+              onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setTileDragOverDate(day.trip_date); }}
+              onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setTileDragOverDate(null); }}
+              onDrop={e => {
+                e.preventDefault();
+                const id = parseInt(e.dataTransfer.getData("tile-activity-id"));
+                if (id) handleTileDrop(id, day.trip_date);
+              }}
               className={`cursor-pointer text-left rounded-2xl overflow-hidden shadow-sm transition-all duration-150
-                ${isSelected
-                  ? "ring-2 ring-amber-400 shadow-lg scale-[1.02]"
-                  : "hover:shadow-md hover:scale-[1.01]"
-                }`}
+                ${isSelected ? "ring-2 ring-amber-400 shadow-lg scale-[1.02]" : "hover:shadow-md hover:scale-[1.01]"}
+                ${isDragTarget ? "ring-2 ring-blue-400 bg-blue-50 scale-[1.02]" : ""}`}
             >
               {/* Color bar */}
               <div className={`${theme.bar} px-3 sm:px-5 py-2 sm:py-3 flex items-center justify-between`}>
@@ -929,9 +954,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                   Day {getDayNumber(day.trip_date)}
                 </span>
                 {dayItems.length > 0 && (
-                  <span className="text-white text-xs opacity-70">
-                    {dayItems.length}
-                  </span>
+                  <span className="text-white text-xs opacity-70">{dayItems.length}</span>
                 )}
               </div>
 
@@ -948,9 +971,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                   const desc = day.summary
                     ? titles.length > 0 ? `${day.summary} — ${preview}${overflow}` : day.summary
                     : preview + overflow;
-                  return desc ? (
-                    <p className="text-xs text-gray-400 mt-1 line-clamp-3 leading-snug">{desc}</p>
-                  ) : null;
+                  return desc ? <p className="text-xs text-gray-400 mt-1 line-clamp-3 leading-snug">{desc}</p> : null;
                 })()}
                 {allBusyDays[day.trip_date] && (
                   <button
@@ -966,7 +987,18 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                 {dayActivities.length > 0 && (
                   <ul className="mt-1.5 space-y-1">
                     {dayActivities.map((a) => (
-                      <li key={a.id}>
+                      <li
+                        key={a.id}
+                        draggable
+                        onDragStart={e => {
+                          e.stopPropagation();
+                          e.dataTransfer.setData("tile-activity-id", String(a.id));
+                          e.dataTransfer.effectAllowed = "move";
+                          setTileDragActivityId(a.id);
+                        }}
+                        onDragEnd={() => setTileDragActivityId(null)}
+                        className={`group flex items-center gap-1.5 rounded cursor-grab active:cursor-grabbing transition-opacity ${tileDragActivityId === a.id ? "opacity-40" : ""}`}
+                      >
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); setDetailActivity(a); }}
@@ -982,6 +1014,11 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                     ))}
                   </ul>
                 )}
+                {isDragTarget && (
+                  <div className="mt-2 border-2 border-dashed border-blue-300 rounded-lg py-2 text-center text-xs text-blue-400">
+                    Drop here
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -989,27 +1026,45 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
 
         {/* ── Not Scheduled tile ── */}
         {(() => {
-          const unscheduled = activities.filter(a => !a.activity_date);
-          if (unscheduled.length === 0) return null;
+          const unscheduled = localActivities.filter(a => !a.activity_date);
+          const isDragTarget = tileDragOverDate === "unscheduled";
+          const isVisible = unscheduled.length > 0 || tileDragActivityId != null;
+          if (!isVisible) return null;
           const isSelected = selectedDate === "unscheduled";
           return (
             <div
               key="unscheduled"
               onClick={() => setSelectedDate(isSelected ? null : "unscheduled")}
+              onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setTileDragOverDate("unscheduled"); }}
+              onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setTileDragOverDate(null); }}
+              onDrop={e => {
+                e.preventDefault();
+                const id = parseInt(e.dataTransfer.getData("tile-activity-id"));
+                if (id) handleTileDrop(id, null);
+              }}
               className={`cursor-pointer text-left rounded-2xl overflow-hidden shadow-sm transition-all duration-150
-                ${isSelected
-                  ? "ring-2 ring-gray-400 shadow-lg scale-[1.02]"
-                  : "hover:shadow-md hover:scale-[1.01]"
-                }`}
+                ${isSelected ? "ring-2 ring-gray-400 shadow-lg scale-[1.02]" : "hover:shadow-md hover:scale-[1.01]"}
+                ${isDragTarget ? "ring-2 ring-blue-400 scale-[1.02]" : ""}`}
             >
-              <div className="bg-gray-400 px-3 sm:px-5 py-2 sm:py-3 flex items-center justify-between">
+              <div className={`${isDragTarget ? "bg-blue-400" : "bg-gray-400"} px-3 sm:px-5 py-2 sm:py-3 flex items-center justify-between`}>
                 <span className="text-white text-xs sm:text-sm font-bold uppercase tracking-widest opacity-90">Not Scheduled</span>
                 <span className="text-white text-xs opacity-70">{unscheduled.length}</span>
               </div>
-              <div className="bg-white px-3 sm:px-5 py-3 sm:py-4 min-h-[120px] sm:min-h-[140px] flex flex-col gap-1">
+              <div className={`${isDragTarget ? "bg-blue-50" : "bg-white"} px-3 sm:px-5 py-3 sm:py-4 min-h-[120px] sm:min-h-[140px] flex flex-col gap-1`}>
                 <ul className="space-y-1">
-                  {unscheduled.slice(0, 5).map(a => (
-                    <li key={a.id} className="flex items-center gap-1.5 text-xs text-gray-500">
+                  {unscheduled.slice(0, 8).map(a => (
+                    <li
+                      key={a.id}
+                      draggable
+                      onDragStart={e => {
+                        e.stopPropagation();
+                        e.dataTransfer.setData("tile-activity-id", String(a.id));
+                        e.dataTransfer.effectAllowed = "move";
+                        setTileDragActivityId(a.id);
+                      }}
+                      onDragEnd={() => setTileDragActivityId(null)}
+                      className={`flex items-center gap-1.5 text-xs text-gray-500 rounded cursor-grab active:cursor-grabbing transition-opacity ${tileDragActivityId === a.id ? "opacity-40" : "hover:text-gray-700"}`}
+                    >
                       {a.image_url
                         ? <img src={a.image_url} alt="" className="w-5 h-5 rounded object-cover shrink-0" />
                         : <span className="w-1.5 h-1.5 rounded-full bg-gray-300 shrink-0" />
@@ -1017,10 +1072,15 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                       <span className="truncate">{a.title}</span>
                     </li>
                   ))}
-                  {unscheduled.length > 5 && (
-                    <li className="text-xs text-gray-400">+{unscheduled.length - 5} more</li>
+                  {unscheduled.length > 8 && (
+                    <li className="text-xs text-gray-400">+{unscheduled.length - 8} more</li>
                   )}
                 </ul>
+                {isDragTarget && unscheduled.length === 0 && (
+                  <div className="border-2 border-dashed border-blue-300 rounded-lg py-4 text-center text-xs text-blue-400">
+                    Drop to unschedule
+                  </div>
+                )}
               </div>
             </div>
           );
