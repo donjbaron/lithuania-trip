@@ -1327,8 +1327,13 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
                           );
                         }
 
-                        const thisStop = stopIdx++;
-                        const leg = thisStop > 0 ? (travelLegs[thisStop - 1] ?? null) : null;
+                        // Only count route stops (slots with coords/address) — must match slotsToStops exactly
+                        const isRenderRouteStop = slot.type === "activity"
+                          ? ((slot as Extract<ItinerarySlot, {type:"activity"}>).activity.lat != null || !!((slot as Extract<ItinerarySlot, {type:"activity"}>).activity.address))
+                          : (slot as Extract<ItinerarySlot, {type:"meal"}>).restaurant != null &&
+                            ((slot as Extract<ItinerarySlot, {type:"meal"}>).restaurant!.lat != null || !!((slot as Extract<ItinerarySlot, {type:"meal"}>).restaurant!.address));
+                        const thisStop = isRenderRouteStop ? stopIdx++ : -1;
+                        const leg = (thisStop > 0) ? (travelLegs[thisStop - 1] ?? null) : null;
 
                         if (slot.type === "meal" && slot.restaurant) {
                           const rest = slot.restaurant;
