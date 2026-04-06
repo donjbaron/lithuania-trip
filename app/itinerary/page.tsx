@@ -9,7 +9,7 @@ export default async function ItineraryPage() {
     dbAll<ItineraryDay>("SELECT * FROM itinerary_days ORDER BY trip_date ASC"),
     dbAll<ItineraryItem>("SELECT * FROM itinerary_items ORDER BY sort_order ASC"),
     dbAll<Accommodation>("SELECT * FROM accommodations ORDER BY check_in ASC"),
-    dbAll<WishlistItem>("SELECT * FROM wishlist_items WHERE activity_date IS NOT NULL ORDER BY activity_date ASC, sort_order ASC, time_slot ASC, id ASC"),
+    dbAll<WishlistItem>("SELECT * FROM wishlist_items ORDER BY activity_date ASC NULLS LAST, sort_order ASC, time_slot ASC, id ASC"),
     dbAll<Restaurant>("SELECT * FROM restaurants ORDER BY city ASC, meal_type ASC, name ASC"),
   ]);
 
