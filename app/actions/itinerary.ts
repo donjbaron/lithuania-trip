@@ -67,12 +67,28 @@ export async function saveItinerary(
   activitySlots: Array<{ id: number; timeSlot: string; sortOrder: number }>,
   restaurantIds: number[]
 ) {
+  // Update saved activities (time slot + sort order)
   for (const { id, timeSlot, sortOrder } of activitySlots) {
     await dbRun(
       "UPDATE wishlist_items SET time_slot = ?, sort_order = ? WHERE id = ?",
       [timeSlot, sortOrder, id]
     );
   }
+  // Clear activity_date for any activities on this day that are NOT in the saved itinerary
+  const savedIds = activitySlots.map(s => s.id);
+  if (savedIds.length > 0) {
+    const placeholders = savedIds.map(() => "?").join(",");
+    await dbRun(
+      `UPDATE wishlist_items SET activity_date = NULL, time_slot = NULL WHERE activity_date = ? AND id NOT IN (${placeholders})`,
+      [date, ...savedIds]
+    );
+  } else {
+    await dbRun(
+      "UPDATE wishlist_items SET activity_date = NULL, time_slot = NULL WHERE activity_date = ?",
+      [date]
+    );
+  }
+  // Assign restaurants to this date
   for (const id of restaurantIds) {
     const existing = await dbAll<{ activity_date: string | null }>(
       "SELECT activity_date FROM restaurants WHERE id = ?", [id]

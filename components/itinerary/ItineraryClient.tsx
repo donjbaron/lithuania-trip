@@ -562,54 +562,53 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
   }
 
   async function calcLegs(stops: Stop[]) {
-    const empty = new Array(Math.max(0, stops.length - 1)).fill(null);
-    if (stops.length < 2) { setTravelLegs(empty); return; }
+    const count = Math.max(0, stops.length - 1);
+    const legs: Array<{ duration: string; mode: "walk" | "drive" } | null> = new Array(count).fill(null);
+    if (count === 0) { setTravelLegs(legs); return; }
 
-    const validPairs = stops
-      .slice(0, -1)
-      .map((a, i) => ({ a, b: stops[i + 1], i }))
-      .filter(p => (p.a.lat != null && p.a.lng != null) || p.a.address)
-      .filter(p => (p.b.lat != null && p.b.lng != null) || p.b.address);
-
-    const legs = [...empty];
-    if (validPairs.length === 0) { setTravelLegs(legs); return; }
-
-    function toWaypoint(s: { lat: number | null; lng: number | null; address?: string | null }) {
+    function toWaypoint(s: Stop) {
       return s.lat != null && s.lng != null ? { lat: s.lat, lng: s.lng } : s.address!;
+    }
+    function hasLocation(s: Stop) {
+      return (s.lat != null && s.lng != null) || !!s.address;
     }
 
     try {
       await loadGoogleMapsWithPlaces();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const g = (window as any).google;
-      await new Promise<void>((resolve) => {
-        new g.maps.DistanceMatrixService().getDistanceMatrix(
-          {
-            origins: validPairs.map(p => toWaypoint(p.a)),
-            destinations: validPairs.map(p => toWaypoint(p.b)),
-            travelMode: g.maps.TravelMode.DRIVING,
-            unitSystem: g.maps.UnitSystem.METRIC,
-          },
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (res: any, status: string) => {
-            if (status === "OK") {
-              validPairs.forEach((pair, j) => {
-                const el = res.rows[j]?.elements[j];
-                if (el?.status === "OK") {
-                  const dist: number = el.distance.value;
-                  if (dist < 1600) {
-                    const mins = Math.max(1, Math.round(dist / 80));
-                    legs[pair.i] = { duration: `~${mins} min`, mode: "walk" };
-                  } else {
-                    legs[pair.i] = { duration: el.duration.text, mode: "drive" };
+      const svc = new g.maps.DistanceMatrixService();
+
+      // One 1×1 request per consecutive pair — avoids N×N diagonal indexing bugs
+      await Promise.all(
+        stops.slice(0, -1).map((from, i) => {
+          const to = stops[i + 1];
+          if (!hasLocation(from) || !hasLocation(to)) return Promise.resolve();
+          return new Promise<void>(resolve => {
+            svc.getDistanceMatrix(
+              {
+                origins: [toWaypoint(from)],
+                destinations: [toWaypoint(to)],
+                travelMode: g.maps.TravelMode.DRIVING,
+                unitSystem: g.maps.UnitSystem.METRIC,
+              },
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              (res: any, status: string) => {
+                if (status === "OK") {
+                  const el = res.rows[0]?.elements[0];
+                  if (el?.status === "OK") {
+                    const dist: number = el.distance.value;
+                    legs[i] = dist < 1600
+                      ? { duration: `~${Math.max(1, Math.round(dist / 80))} min`, mode: "walk" }
+                      : { duration: el.duration.text, mode: "drive" };
                   }
                 }
-              });
-            }
-            resolve();
-          }
-        );
-      });
+                resolve();
+              }
+            );
+          });
+        })
+      );
     } catch { /* ignore */ }
 
     setTravelLegs(legs);
@@ -987,6 +986,45 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
             </div>
           );
         })}
+
+        {/* ── Not Scheduled tile ── */}
+        {(() => {
+          const unscheduled = activities.filter(a => !a.activity_date);
+          if (unscheduled.length === 0) return null;
+          const isSelected = selectedDate === "unscheduled";
+          return (
+            <div
+              key="unscheduled"
+              onClick={() => setSelectedDate(isSelected ? null : "unscheduled")}
+              className={`cursor-pointer text-left rounded-2xl overflow-hidden shadow-sm transition-all duration-150
+                ${isSelected
+                  ? "ring-2 ring-gray-400 shadow-lg scale-[1.02]"
+                  : "hover:shadow-md hover:scale-[1.01]"
+                }`}
+            >
+              <div className="bg-gray-400 px-3 sm:px-5 py-2 sm:py-3 flex items-center justify-between">
+                <span className="text-white text-xs sm:text-sm font-bold uppercase tracking-widest opacity-90">Not Scheduled</span>
+                <span className="text-white text-xs opacity-70">{unscheduled.length}</span>
+              </div>
+              <div className="bg-white px-3 sm:px-5 py-3 sm:py-4 min-h-[120px] sm:min-h-[140px] flex flex-col gap-1">
+                <ul className="space-y-1">
+                  {unscheduled.slice(0, 5).map(a => (
+                    <li key={a.id} className="flex items-center gap-1.5 text-xs text-gray-500">
+                      {a.image_url
+                        ? <img src={a.image_url} alt="" className="w-5 h-5 rounded object-cover shrink-0" />
+                        : <span className="w-1.5 h-1.5 rounded-full bg-gray-300 shrink-0" />
+                      }
+                      <span className="truncate">{a.title}</span>
+                    </li>
+                  ))}
+                  {unscheduled.length > 5 && (
+                    <li className="text-xs text-gray-400">+{unscheduled.length - 5} more</li>
+                  )}
+                </ul>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── Expanded panel ── */}
