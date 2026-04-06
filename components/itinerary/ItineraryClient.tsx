@@ -321,6 +321,14 @@ function recomputeSlotTimes(
     const meal = slot.type === "meal" ? (slot as Extract<ItinerarySlot, {type:"meal"}>): null;
     // Sunset is a fixed time marker — never cascade it
     if (meal?.label === "Sunset") return slot;
+    const actSlot = slot.type === "activity" ? (slot as Extract<ItinerarySlot, {type:"activity"}>) : null;
+    // Activity with an explicit time_slot (e.g. transit/arrival markers) — keep stated time, just advance clock
+    if (actSlot?.activity.time_slot) {
+      const [fh, fm] = actSlot.activity.time_slot.split(":").map(Number);
+      const fixedMins = fh * 60 + (fm || 0);
+      prevEndMins = Math.max(prevEndMins ?? anchorMins, fixedMins) + getDuration(actSlot.activity.id);
+      return slot; // preserve time set by suggestItinerary
+    }
     // Meals without a restaurant still advance the clock but aren't route stops
     const isRouteStop = slot.type === "activity"
       ? ((slot as Extract<ItinerarySlot, {type:"activity"}>).activity.lat != null || !!((slot as Extract<ItinerarySlot, {type:"activity"}>).activity.address))
