@@ -275,8 +275,9 @@ function matrixCellToLeg(cell: MatrixCell): { duration: string; mode: "walk" | "
 }
 
 function minsToTime(totalMins: number) {
-  const h = Math.floor(totalMins / 60);
-  const m = totalMins % 60;
+  const wrapped = ((totalMins % (24 * 60)) + 24 * 60) % (24 * 60); // always 0–1439
+  const h = Math.floor(wrapped / 60);
+  const m = wrapped % 60;
   const ampm = h >= 12 ? "PM" : "AM";
   const hour = h > 12 ? h - 12 : h === 0 ? 12 : h;
   return `${hour}:${m.toString().padStart(2, "0")} ${ampm}`;
@@ -318,6 +319,8 @@ function recomputeSlotTimes(
   let stopIdx = 0;
   return slots.map(slot => {
     const meal = slot.type === "meal" ? (slot as Extract<ItinerarySlot, {type:"meal"}>): null;
+    // Sunset is a fixed time marker — never cascade it
+    if (meal?.label === "Sunset") return slot;
     // Meals without a restaurant still advance the clock but aren't route stops
     const isRouteStop = slot.type === "activity"
       ? ((slot as Extract<ItinerarySlot, {type:"activity"}>).activity.lat != null || !!((slot as Extract<ItinerarySlot, {type:"activity"}>).activity.address))
@@ -683,13 +686,32 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
         if (c) endCoords = CITY_COORDS[c];
       }
     }
-    // Use breakfast restaurant location as start anchor (that's where the day literally begins)
-    const assignedBreakfast = restaurants.find(r => r.meal_type === "breakfast" && r.city === city) ?? null;
+    // Morning city = where you wake up = hotel you check OUT of today (not the day's destination label)
+    const departureHotel = hotels.find(h => h.check_out === date) ?? null;
+    const morningCity = departureHotel?.city ?? city;
+
+    // Arrival hotel = where you check IN today = route endpoint
+    const arrivalHotel = hotels.find(h => h.check_in === date) ?? null;
+
+    // Breakfast is in the MORNING city (where you slept), not the destination
+    const assignedBreakfast = restaurants.find(r => r.meal_type === "breakfast" && r.city === morningCity) ?? null;
+
     if (!startCoords) {
-      if (assignedBreakfast?.lat != null && assignedBreakfast.lng != null) {
+      if (departureHotel?.lat != null && departureHotel.lng != null) {
+        startCoords = [departureHotel.lat, departureHotel.lng];
+      } else if (assignedBreakfast?.lat != null && assignedBreakfast.lng != null) {
         startCoords = [assignedBreakfast.lat, assignedBreakfast.lng];
+      } else if (morningCity && CITY_COORDS[morningCity]) {
+        startCoords = CITY_COORDS[morningCity];
       } else if (city && CITY_COORDS[city]) {
         startCoords = CITY_COORDS[city];
+      }
+    }
+    if (!endCoords) {
+      if (arrivalHotel?.lat != null && arrivalHotel.lng != null) {
+        endCoords = [arrivalHotel.lat, arrivalHotel.lng];
+      } else if (arrivalHotel?.city && CITY_COORDS[arrivalHotel.city]) {
+        endCoords = CITY_COORDS[arrivalHotel.city];
       }
     }
 
