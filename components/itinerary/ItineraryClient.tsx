@@ -668,11 +668,12 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
 
     // 2. Classify activities
     // Transit markers (arrival/departure/check-in etc.) stay at their fixed time_slot
-    const TRANSIT_RE = /\b(arriv|depart|leave|flight|transfer|check.?in|check.?out|train|bus)\b/i;
+    const TRANSIT_RE = /\b(arriv\w*|depart\w*|leave|flight|transfer|check.?in|check.?out|train|bus)\b/i;
     const isTransit = (a: WishlistItem) => TRANSIT_RE.test(a.title);
     const transitFixed = geocoded.filter(a => isTransit(a) && a.time_slot)
       .map(a => { const [h, m] = a.time_slot!.split(":").map(Number); return { a, mins: h * 60 + m }; })
       .sort((x, y) => x.mins - y.mins);
+    const transitNoTime = geocoded.filter(a => isTransit(a) && !a.time_slot);
     const sightseeing = geocoded.filter(a => !isTransit(a));
     const routable = sightseeing.filter(a => a.lat != null && a.lng != null);
     const unroutable = sightseeing.filter(a => a.lat == null || a.lng == null);
@@ -680,7 +681,7 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
     // 3. Detect travel direction from transit markers (e.g. "Leave Vilnius" / "Arrive Kaunas")
     let startCoords: [number, number] | null = null;
     let endCoords: [number, number] | null = null;
-    for (const { a } of transitFixed) {
+    for (const { a } of [...transitFixed, ...transitNoTime.map(a => ({ a }))]) {
       const leaveMatch = a.title.match(/\b(?:leave|depart(?:ing)?|leaving)\s+(\w+)/i);
       const arriveMatch = a.title.match(/\b(?:arriv(?:e|ing|al)?|reach(?:ing)?)\s+(\w+)/i);
       if (leaveMatch) {
@@ -802,10 +803,15 @@ export default function ItineraryClient({ days, items, hotels, activities, resta
       activitiesDone++;
     }
 
-    // Drain remaining transit markers
+    // Drain remaining transit markers (at their stated time)
     while (transitIdx < transitFixed.length) {
       const { a, mins } = transitFixed[transitIdx++];
-      slots.push({ type: "activity", activity: a, time: minsToTime(Math.max(currentMins, mins)) });
+      slots.push({ type: "activity", activity: a, time: minsToTime(mins) });
+    }
+
+    // Transit markers with no time_slot — show after activities at current time
+    for (const a of transitNoTime) {
+      slots.push({ type: "activity", activity: a, time: minsToTime(currentMins) });
     }
 
     // Late lunch (if never inserted)
